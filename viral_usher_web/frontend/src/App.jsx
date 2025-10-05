@@ -1,0 +1,436 @@
+import React, { useState } from 'react';
+
+function App() {
+  // Step tracking
+  const [currentStep, setCurrentStep] = useState(1);
+
+  // Search and selection state
+  const [speciesSearch, setSpeciesSearch] = useState('');
+  const [taxonomyResults, setTaxonomyResults] = useState([]);
+  const [selectedTaxonomy, setSelectedTaxonomy] = useState(null);
+
+  const [refseqResults, setRefseqResults] = useState([]);
+  const [selectedRefseq, setSelectedRefseq] = useState(null);
+  const [assemblyId, setAssemblyId] = useState('');
+
+  const [nextcladeDatasets, setNextcladeDatasets] = useState([]);
+  const [selectedNextclade, setSelectedNextclade] = useState(null);
+
+  // Configuration parameters
+  const [minLengthProportion, setMinLengthProportion] = useState('0.95');
+  const [maxNProportion, setMaxNProportion] = useState('0.05');
+  const [maxParsimony, setMaxParsimony] = useState('10');
+  const [maxBranchLength, setMaxBranchLength] = useState('10');
+  const [workdir, setWorkdir] = useState('./viral_usher_data');
+
+  // UI state
+  const [loading, setLoading] = useState(false);
+  const [loadingRefSeqs, setLoadingRefSeqs] = useState(false);
+  const [loadingAssembly, setLoadingAssembly] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(null);
+
+  // API base URL
+  const API_BASE = '/api';
+
+  // Search for species
+  const searchSpecies = async () => {
+    if (!speciesSearch.trim()) return;
+
+    // Clear previous selections
+    setSelectedTaxonomy(null);
+    setRefseqResults([]);
+    setSelectedRefseq(null);
+    setAssemblyId('');
+    setNextcladeDatasets([]);
+    setSelectedNextclade(null);
+    setCurrentStep(1);
+    setTaxonomyResults([]);
+
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch(`${API_BASE}/search-species`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ term: speciesSearch })
+      });
+
+      if (!response.ok) throw new Error('Failed to search species');
+
+      const data = await response.json();
+      setTaxonomyResults(data);
+
+      if (data.length === 0) {
+        setError('No matches found. Try a different search term.');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Select taxonomy and fetch RefSeqs
+  const selectTaxonomy = async (taxonomy) => {
+    setSelectedTaxonomy(taxonomy);
+    setLoadingRefSeqs(true);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE}/refseqs/${taxonomy.tax_id}`);
+      if (!response.ok) throw new Error('Failed to fetch RefSeqs');
+
+      const data = await response.json();
+      setRefseqResults(data);
+
+      if (data.length === 0) {
+        setError('No RefSeqs found for this taxonomy ID.');
+      } else {
+        setCurrentStep(2);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingRefSeqs(false);
+    }
+  };
+
+  // Select RefSeq and fetch assembly
+  const selectRefseq = async (refseq) => {
+    setSelectedRefseq(refseq);
+    setLoadingAssembly(true);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE}/assembly/${refseq.accession}`);
+      if (!response.ok) throw new Error('Failed to fetch assembly ID');
+
+      const data = await response.json();
+      setAssemblyId(data.assembly_id);
+
+      // Also search for Nextclade datasets
+      await searchNextclade();
+
+      setCurrentStep(3);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingAssembly(false);
+    }
+  };
+
+  // Search Nextclade datasets
+  const searchNextclade = async () => {
+    if (!selectedTaxonomy) return;
+
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `${API_BASE}/nextclade-datasets?species=${encodeURIComponent(selectedTaxonomy.sci_name)}`
+      );
+      if (!response.ok) throw new Error('Failed to fetch Nextclade datasets');
+
+      const data = await response.json();
+      setNextcladeDatasets(data);
+    } catch (err) {
+      console.error('Nextclade search error:', err);
+      // Non-critical error, don't show to user
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Generate config
+  const generateConfig = async () => {
+    setLoading(true);
+    setError('');
+    setSuccess(null);
+
+    try {
+      const configData = {
+        refseq_acc: selectedRefseq?.accession || '',
+        refseq_assembly: assemblyId,
+        species: selectedTaxonomy?.sci_name || '',
+        taxonomy_id: selectedTaxonomy?.tax_id || '',
+        nextclade_dataset: selectedNextclade?.path || '',
+        nextclade_clade_columns: selectedNextclade?.clade_columns || '',
+        min_length_proportion: minLengthProportion,
+        max_N_proportion: maxNProportion,
+        max_parsimony: maxParsimony,
+        max_branch_length: maxBranchLength,
+        workdir: workdir
+      };
+
+      const response = await fetch(`${API_BASE}/generate-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(configData)
+      });
+
+      if (!response.ok) throw new Error('Failed to generate config');
+
+      const data = await response.json();
+      setSuccess(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="container">
+      <h1>Viral Usher Configuration</h1>
+      <p className="subtitle">Create a configuration file for building viral phylogenetic trees</p>
+
+      {/* Step 1: Species Search */}
+      <div className="form-section">
+        <h2 className="section-title">1. Select Virus Species</h2>
+        <div className="form-group">
+          <label>Search for your virus of interest:</label>
+          <input
+            type="text"
+            value={speciesSearch}
+            onChange={(e) => setSpeciesSearch(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && searchSpecies()}
+            placeholder="e.g., Zika virus, SARS-CoV-2, Influenza A"
+          />
+          <button
+            className="search-button"
+            onClick={searchSpecies}
+            disabled={loading || !speciesSearch.trim()}
+            style={{ marginTop: '10px' }}
+          >
+            {loading ? 'Searching...' : 'Search'}
+          </button>
+        </div>
+
+        {taxonomyResults.length > 0 && !selectedTaxonomy && !loadingRefSeqs && (
+          <div className="results-list">
+            {taxonomyResults.map((tax) => (
+              <div
+                key={tax.tax_id}
+                className="result-item"
+                onClick={() => selectTaxonomy(tax)}
+              >
+                {tax.sci_name} (Tax ID: {tax.tax_id})
+              </div>
+            ))}
+          </div>
+        )}
+
+        {loadingRefSeqs && <div className="loading"><div className="spinner"></div>Loading RefSeq entries...</div>}
+
+        {selectedTaxonomy && !loadingRefSeqs && (
+          <div className="selected-item">
+            <strong>Selected:</strong> {selectedTaxonomy.sci_name} (Tax ID: {selectedTaxonomy.tax_id})
+            <button
+              className="search-button"
+              onClick={() => {
+                setSelectedTaxonomy(null);
+                setRefseqResults([]);
+                setSelectedRefseq(null);
+                setAssemblyId('');
+                setNextcladeDatasets([]);
+                setSelectedNextclade(null);
+                setCurrentStep(1);
+              }}
+              style={{ marginLeft: '10px', padding: '6px 12px', fontSize: '0.9rem' }}
+            >
+              Change
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Step 2: RefSeq Selection */}
+      {currentStep >= 2 && (
+        <div className="form-section">
+          <h2 className="section-title">2. Select Reference Sequence</h2>
+          {loadingRefSeqs && <div className="loading"><div className="spinner"></div>Loading RefSeq entries...</div>}
+          {refseqResults.length > 0 && !selectedRefseq && !loadingRefSeqs && (
+            <div className="results-list">
+              {refseqResults.map((refseq, idx) => (
+                <div
+                  key={idx}
+                  className="result-item"
+                  onClick={() => selectRefseq(refseq)}
+                >
+                  <strong>{refseq.accession}</strong>: {refseq.title}
+                  {refseq.strain && refseq.strain !== 'No strain' && (
+                    <div style={{ fontSize: '0.9em', color: '#666' }}>
+                      Strain: {refseq.strain}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {loadingAssembly && <div className="loading"><div className="spinner"></div>Loading assembly information...</div>}
+          {selectedRefseq && !loadingAssembly && (
+            <div className="selected-item">
+              <strong>Selected RefSeq:</strong> {selectedRefseq.accession}
+              <br />
+              <strong>Assembly:</strong> {assemblyId}
+              <button
+                className="search-button"
+                onClick={() => {
+                  setSelectedRefseq(null);
+                  setAssemblyId('');
+                  setNextcladeDatasets([]);
+                  setSelectedNextclade(null);
+                  setCurrentStep(2);
+                }}
+                style={{ marginLeft: '10px', padding: '6px 12px', fontSize: '0.9rem' }}
+              >
+                Change
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 3: Configuration Parameters */}
+      {currentStep >= 3 && (
+        <>
+          <div className="form-section">
+            <h2 className="section-title">3. Nextclade Dataset (Optional)</h2>
+            {nextcladeDatasets.length > 0 ? (
+              <>
+                <div className="results-list">
+                  {nextcladeDatasets.map((dataset, idx) => (
+                    <div
+                      key={idx}
+                      className="result-item"
+                      onClick={() => setSelectedNextclade(dataset)}
+                      style={{
+                        background: selectedNextclade?.path === dataset.path ? '#f0f4ff' : 'transparent'
+                      }}
+                    >
+                      <strong>{dataset.path}</strong>
+                      <br />
+                      <span style={{ fontSize: '0.9em', color: '#666' }}>{dataset.name}</span>
+                    </div>
+                  ))}
+                </div>
+                {selectedNextclade && (
+                  <div className="selected-item" style={{ marginTop: '10px' }}>
+                    <strong>Selected:</strong> {selectedNextclade.path}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="help-text">No Nextclade datasets found for this species.</p>
+            )}
+          </div>
+
+          <div className="form-section">
+            <h2 className="section-title">4. Filtering Parameters</h2>
+            <div className="grid-2">
+              <div className="form-group">
+                <label>
+                  Minimum Length Proportion
+                  <div className="help-text">Filter sequences by minimum length (0-1)</div>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                  value={minLengthProportion}
+                  onChange={(e) => setMinLengthProportion(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>
+                  Maximum N Proportion
+                  <div className="help-text">Maximum proportion of ambiguous bases (0-1)</div>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                  value={maxNProportion}
+                  onChange={(e) => setMaxNProportion(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>
+                  Maximum Parsimony
+                  <div className="help-text">Maximum private substitutions allowed</div>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={maxParsimony}
+                  onChange={(e) => setMaxParsimony(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>
+                  Maximum Branch Length
+                  <div className="help-text">Maximum substitutions per branch</div>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={maxBranchLength}
+                  onChange={(e) => setMaxBranchLength(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="form-section">
+            <h2 className="section-title">5. Working Directory</h2>
+            <div className="form-group">
+              <label>
+                Directory for data and output files
+                <div className="help-text">Where sequences will be downloaded and trees built</div>
+              </label>
+              <input
+                type="text"
+                value={workdir}
+                onChange={(e) => setWorkdir(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <button
+            className="submit-button"
+            onClick={generateConfig}
+            disabled={loading}
+            style={{ width: '100%', marginTop: '20px' }}
+          >
+            {loading ? 'Generating...' : 'Generate Configuration File'}
+          </button>
+        </>
+      )}
+
+      {error && <div className="error">{error}</div>}
+
+      {success && (
+        <div className="success">
+          <h3>Configuration Created Successfully!</h3>
+          <p><strong>Config file:</strong> <code>{success.config_path}</code></p>
+          <p style={{ marginTop: '15px' }}>
+            <strong>Next step:</strong> Run the following command to build your tree:
+          </p>
+          <p style={{ marginTop: '10px', background: 'white', padding: '12px', borderRadius: '6px', fontFamily: 'monospace' }}>
+            viral_usher build --config {success.config_path}
+          </p>
+        </div>
+      )}
+
+      {loading && <div className="loading"><div className="spinner"></div>Loading...</div>}
+    </div>
+  );
+}
+
+export default App;
