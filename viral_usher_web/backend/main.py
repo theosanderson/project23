@@ -11,6 +11,7 @@ import boto3
 from botocore.exceptions import ClientError
 import uuid
 from datetime import datetime
+from kubernetes import client, config as k8s_config
 
 from viral_usher import ncbi_helper, nextclade_helper, config
 
@@ -20,6 +21,11 @@ S3_ENDPOINT_URL = os.getenv('S3_ENDPOINT_URL', '')  # e.g., https://s3.example.c
 S3_REGION = os.getenv('S3_REGION', 'us-east-1')
 S3_ACCESS_KEY_ID = os.getenv('S3_ACCESS_KEY_ID', '')
 S3_SECRET_ACCESS_KEY = os.getenv('S3_SECRET_ACCESS_KEY', '')
+
+# Kubernetes Configuration
+K8S_NAMESPACE = os.getenv('K8S_NAMESPACE', 'default')
+K8S_JOB_IMAGE = os.getenv('K8S_JOB_IMAGE', 'YOUR_IMAGE_HERE')
+K8S_S3_SECRET_NAME = os.getenv('K8S_S3_SECRET_NAME', '')  # Optional: use k8s secret instead of env vars
 
 # Initialize S3 client if configured
 s3_client = None
@@ -201,6 +207,80 @@ def upload_to_s3(file_content: bytes, filename: str, content_type: str = 'text/p
         raise HTTPException(status_code=500, detail=f"S3 upload failed: {str(e)}")
 
 
+def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
+    """Start a Kubernetes job to process the config file"""
+    try:
+        # Load kubernetes config (try in-cluster first, fallback to local kubeconfig)
+        try:
+            k8s_config.load_incluster_config()
+        except k8s_config.ConfigException:
+            k8s_config.load_kube_config()
+
+        # Create API client
+        batch_v1 = client.BatchV1Api()
+
+        # Build environment variables for the job
+        env_vars = [
+            client.V1EnvVar(name="CONFIG_S3_KEY", value=config_s3_key),
+            client.V1EnvVar(name="S3_BUCKET", value=S3_BUCKET),
+            client.V1EnvVar(name="S3_REGION", value=S3_REGION),
+        ]
+
+        if S3_ENDPOINT_URL:
+            env_vars.append(client.V1EnvVar(name="S3_ENDPOINT_URL", value=S3_ENDPOINT_URL))
+
+        # If using Kubernetes secret for S3 credentials, use envFrom
+        # Otherwise, pass credentials as env vars (less secure but works for dev)
+        env_from = []
+        if K8S_S3_SECRET_NAME:
+            env_from.append(client.V1EnvFromSource(
+                secret_ref=client.V1SecretEnvSource(name=K8S_S3_SECRET_NAME)
+            ))
+        else:
+            # Fall back to env vars
+            env_vars.extend([
+                client.V1EnvVar(name="S3_ACCESS_KEY_ID", value=S3_ACCESS_KEY_ID),
+                client.V1EnvVar(name="S3_SECRET_ACCESS_KEY", value=S3_SECRET_ACCESS_KEY),
+            ])
+
+        # TODO: Fill in the exact job template
+        job = client.V1Job(
+            api_version="batch/v1",
+            kind="Job",
+            metadata=client.V1ObjectMeta(name=job_name),
+            spec=client.V1JobSpec(
+                template=client.V1PodTemplateSpec(
+                    spec=client.V1PodSpec(
+                        restart_policy="Never",
+                        containers=[
+                            client.V1Container(
+                                name="viral-usher-worker",
+                                image=K8S_JOB_IMAGE,
+                                env=env_vars,
+                                env_from=env_from if env_from else None,
+                            )
+                        ]
+                    )
+                )
+            )
+        )
+
+        # Create the job
+        api_response = batch_v1.create_namespaced_job(
+            body=job,
+            namespace=K8S_NAMESPACE
+        )
+
+        return {
+            "success": True,
+            "job_name": job_name,
+            "namespace": K8S_NAMESPACE,
+            "uid": api_response.metadata.uid
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Kubernetes job creation failed: {str(e)}")
+
+
 @app.post("/api/generate-config")
 async def generate_config(
     refseq_acc: str = Form(""),
@@ -265,16 +345,26 @@ async def generate_config(
 
         # Upload config to S3
         config_s3_key = None
+        job_info = None
         if s3_client:
             with open(config_path, 'rb') as f:
                 config_s3_key = upload_to_s3(f.read(), config_filename, "application/toml")
+
+            # Start Kubernetes job to process the config
+            job_name = f"viral-usher-{taxonomy_id}-{uuid.uuid4().hex[:8]}"
+            try:
+                job_info = start_kubernetes_job(config_s3_key, job_name)
+            except HTTPException as e:
+                # Job creation failed, but config was still created
+                job_info = {"success": False, "error": str(e.detail)}
 
         return {
             "config_path": config_path,
             "config_s3_key": config_s3_key,
             "fasta_s3_key": fasta_s3_key,
             "config_contents": config_contents,
-            "s3_bucket": S3_BUCKET if s3_client else None
+            "s3_bucket": S3_BUCKET if s3_client else None,
+            "job_info": job_info
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
