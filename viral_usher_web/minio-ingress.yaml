@@ -1,65 +1,25 @@
-apiVersion: traefik.containo.us/v1alpha1
-kind: Middleware
-metadata:
-  name: minio-api-stripprefix
-  namespace: viral-usher
-spec:
-  stripPrefix:
-    prefixes:
-      - /minio-api
----
-apiVersion: traefik.containo.us/v1alpha1
-kind: Middleware
-metadata:
-  name: minio-console-stripprefix
-  namespace: viral-usher
-spec:
-  stripPrefix:
-    prefixes:
-      - /minio-console
----
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: viral-usher-minio-ingress
   namespace: viral-usher
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
-    traefik.ingress.kubernetes.io/router.middlewares: viral-usher-minio-api-stripprefix@kubernetescrd
-    traefik.ingress.kubernetes.io/router.priority: "100"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: traefik
+  tls:
+    - secretName: viral-usher-minio-tls
+      hosts:
+        - s3-usher.api.taxonium.org
   rules:
-  # MinIO API on /minio-api
-  - http:
+  # MinIO API on subdomain
+  - host: s3-usher.api.taxonium.org
+    http:
       paths:
-      - path: /minio-api
+      - path: /
         pathType: Prefix
         backend:
           service:
             name: viral-usher-minio
             port:
               number: 9000
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: viral-usher-minio-console-ingress
-  namespace: viral-usher
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
-    traefik.ingress.kubernetes.io/router.middlewares: viral-usher-minio-console-stripprefix@kubernetescrd
-    traefik.ingress.kubernetes.io/router.priority: "100"
-spec:
-  ingressClassName: traefik
-  rules:
-  # MinIO Console on /minio-console
-  - http:
-      paths:
-      - path: /minio-console
-        pathType: Prefix
-        backend:
-          service:
-            name: viral-usher-minio-console
-            port:
-              number: 9001

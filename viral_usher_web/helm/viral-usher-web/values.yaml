@@ -37,20 +37,19 @@ service:
   targetPort: 8000
 
 ingress:
-  enabled: false
-  className: ""
-  annotations: {}
-    # kubernetes.io/ingress.class: nginx
-    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  enabled: true
+  className: "traefik"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
   hosts:
-    - host: viral-usher.example.com
+    - host: viral-usher-test.api.taxonium.org
       paths:
         - path: /
           pathType: Prefix
-  tls: []
-  #  - secretName: viral-usher-tls
-  #    hosts:
-  #      - viral-usher.example.com
+  tls:
+    - secretName: viral-usher-tls
+      hosts:
+        - viral-usher-test.api.taxonium.org
 
 resources:
   limits:

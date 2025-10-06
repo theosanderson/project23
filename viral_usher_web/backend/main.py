@@ -448,8 +448,8 @@ async def get_job_logs(job_name: str, request: Request):
                     bucket = file_info["bucket"]
                     prefix = file_info["prefix"]
 
-                    # Use relative URL so it works with any host (localhost, Codespaces, etc.)
-                    url = f"/minio-api/{bucket}/{file_info['s3_key']}"
+                    # Use S3 subdomain URL
+                    url = f"https://s3-usher.api.taxonium.org/{bucket}/{file_info['s3_key']}"
 
                     file_entry = {
                         "filename": file_info["filename"],
@@ -491,7 +491,7 @@ async def get_job_logs(job_name: str, request: Request):
                         # Create download URLs for each file
                         file_urls = []
                         for file_key in s3_data["uploaded_files"]:
-                            url = f"/minio-api/{bucket}/{file_key}"
+                            url = f"https://s3-usher.api.taxonium.org/{bucket}/{file_key}"
                             filename = file_key.replace(f"{prefix}/", "")
                             file_entry = {
                                 "filename": filename,
