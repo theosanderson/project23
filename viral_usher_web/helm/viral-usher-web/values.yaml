@@ -133,7 +133,7 @@ minio:
       memory: 512Mi
   buckets:
     - name: viral-usher
-      policy: none
+      policy: download
       purge: false
   service:
     type: ClusterIP

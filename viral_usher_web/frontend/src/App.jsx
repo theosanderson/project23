@@ -22,18 +22,17 @@ function App() {
   const [fastaInputMethod, setFastaInputMethod] = useState('text'); // 'text' or 'file'
 
   // Configuration parameters
-  const [minLengthProportion, setMinLengthProportion] = useState('0.95');
-  const [maxNProportion, setMaxNProportion] = useState('0.05');
-  const [maxParsimony, setMaxParsimony] = useState('10');
-  const [maxBranchLength, setMaxBranchLength] = useState('10');
-  const [workdir, setWorkdir] = useState('/data/viral_usher_data');
+  const [minLengthProportion, setMinLengthProportion] = useState('0.8');
+  const [maxNProportion, setMaxNProportion] = useState('0.25');
+  const [maxParsimony, setMaxParsimony] = useState('1000');
+  const [maxBranchLength, setMaxBranchLength] = useState('10000');
+  const workdir = '/data/viral_usher_data'; // Hardcoded working directory
 
   // UI state
   const [loading, setLoading] = useState(false);
   const [loadingRefSeqs, setLoadingRefSeqs] = useState(false);
   const [loadingAssembly, setLoadingAssembly] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(null);
   const [jobLogs, setJobLogs] = useState(null);
   const [pollingInterval, setPollingInterval] = useState(null);
 
@@ -152,7 +151,6 @@ function App() {
   const generateConfig = async () => {
     setLoading(true);
     setError('');
-    setSuccess(null);
 
     try {
       const formData = new FormData();
@@ -180,10 +178,9 @@ function App() {
         body: formData
       });
 
-      if (!response.ok) throw new Error('Failed to generate config');
+      if (!response.ok) throw new Error('Failed to launch analysis');
 
       const data = await response.json();
-      setSuccess(data);
 
       // Start polling for job logs if a job was created
       if (data.job_info && data.job_info.success && data.job_info.job_name) {
@@ -239,8 +236,8 @@ function App() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
       <div className="max-w-4xl mx-auto">
         <div className="bg-white rounded-xl shadow-lg p-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Viral Usher Configuration</h1>
-          <p className="text-gray-600 mb-8">Create a configuration file for building viral phylogenetic trees</p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Viral Usher Tree Builder</h1>
+          <p className="text-gray-600 mb-8">Build viral phylogenetic trees from sequence data</p>
 
           {/* Step 1: Species Search */}
           <div className="mb-8">
@@ -372,7 +369,7 @@ function App() {
             </div>
           )}
 
-          {/* Step 3: Configuration Parameters */}
+          {/* Step 3: Tree Building Parameters */}
           {currentStep >= 3 && (
             <>
               <div className="mb-8">
@@ -470,7 +467,7 @@ function App() {
               </div>
 
               <div className="mb-8">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">5. Filtering Parameters</h2>
+                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">5. Tree Building & Filtering Parameters</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -534,28 +531,12 @@ function App() {
                 </div>
               </div>
 
-              <div className="mb-8">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">6. Working Directory</h2>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Directory for data and output files
-                    <div className="text-xs text-gray-500 font-normal mt-1">Where sequences will be downloaded and trees built</div>
-                  </label>
-                  <input
-                    type="text"
-                    value={workdir}
-                    onChange={(e) => setWorkdir(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                  />
-                </div>
-              </div>
-
               <button
                 onClick={generateConfig}
                 disabled={loading}
                 className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium text-lg"
               >
-                {loading ? 'Generating...' : 'Generate Configuration File'}
+                {loading ? 'Launching...' : 'Launch Analysis'}
               </button>
             </>
           )}
@@ -566,32 +547,6 @@ function App() {
             </div>
           )}
 
-          {success && (
-            <div className="mt-6 bg-green-50 border-2 border-green-200 rounded-lg p-6">
-              <h3 className="text-xl font-semibold text-green-800 mb-4">Configuration Created Successfully!</h3>
-              <div className="space-y-3">
-                <p>
-                  <strong className="text-gray-900">Config file:</strong> <code className="bg-white px-2 py-1 rounded text-sm text-gray-800 border border-gray-200">{success.config_path}</code>
-                </p>
-                {success.config_s3_key && (
-                  <p>
-                    <strong className="text-gray-900">S3 Config:</strong> <code className="bg-white px-2 py-1 rounded text-sm text-gray-800 border border-gray-200">s3://{success.s3_bucket}/{success.config_s3_key}</code>
-                  </p>
-                )}
-                {success.fasta_s3_key && (
-                  <p>
-                    <strong className="text-gray-900">S3 FASTA:</strong> <code className="bg-white px-2 py-1 rounded text-sm text-gray-800 border border-gray-200">s3://{success.s3_bucket}/{success.fasta_s3_key}</code>
-                  </p>
-                )}
-                <p className="mt-4">
-                  <strong className="text-gray-900">Next step:</strong> Run the following command to build your tree:
-                </p>
-                <div className="bg-white p-4 rounded-lg border border-gray-200 font-mono text-sm text-gray-800">
-                  viral_usher build --config {success.config_path}
-                </div>
-              </div>
-            </div>
-          )}
 
           {jobLogs && (
             <div className="mt-6 bg-gray-50 border-2 border-gray-300 rounded-lg p-6">
@@ -638,6 +593,74 @@ function App() {
                   <div className="flex items-center gap-2 text-blue-600 text-sm">
                     <div className="w-4 h-4 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
                     Job is running... (auto-refreshing every 3 seconds)
+                  </div>
+                )}
+
+                {/* S3 Results Section */}
+                {jobLogs.s3_results && jobLogs.s3_results.files && jobLogs.s3_results.files.length > 0 && (
+                  <div className="mt-6 bg-gradient-to-r from-green-50 to-blue-50 border-2 border-green-300 rounded-lg p-6">
+                    <h4 className="text-xl font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                      <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Results Available for Download
+                    </h4>
+                    <p className="text-sm text-gray-600 mb-4">
+                      {jobLogs.s3_results.upload_complete ? (
+                        <>All {jobLogs.s3_results.total_files} output files have been uploaded to S3 and are ready to download:</>
+                      ) : (
+                        <>{jobLogs.s3_results.total_files} file{jobLogs.s3_results.total_files !== 1 ? 's' : ''} uploaded so far (upload in progress)...</>
+                      )}
+                    </p>
+                    <div className="bg-white rounded-lg border border-gray-200 max-h-96 overflow-y-auto">
+                      {jobLogs.s3_results.files.map((file, idx) => (
+                        <div key={idx} className="px-4 py-3 border-b border-gray-100 last:border-b-0 hover:bg-blue-50 transition flex items-center justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-mono text-sm text-gray-800 truncate" title={file.filename}>
+                              {file.filename}
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            {file.is_taxonium && (() => {
+                              // Construct Taxonium URL client-side
+                              const fullUrl = `${window.location.origin}${file.url}`;
+                              const encodedUrl = encodeURIComponent(fullUrl);
+                              const taxoniumUrl = `https://taxonium.org/?protoUrl=${encodedUrl}&xType=x_dist`;
+                              return (
+                                <a
+                                  href={taxoniumUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex-shrink-0 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm font-medium flex items-center gap-2"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                  </svg>
+                                  View in Taxonium
+                                </a>
+                              );
+                            })()}
+                            <a
+                              href={file.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex-shrink-0 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium flex items-center gap-2"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                              </svg>
+                              Download
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-4 pt-4 border-t border-green-200">
+                      <p className="text-sm text-gray-600">
+                        <strong>S3 Location:</strong> <code className="bg-white px-2 py-1 rounded text-xs">s3://{jobLogs.s3_results.bucket}/{jobLogs.s3_results.prefix}/</code>
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>

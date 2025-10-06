@@ -1,6 +1,6 @@
 """FastAPI backend for viral_usher web interface"""
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -260,10 +260,17 @@ def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
                                 image="amazon/aws-cli:latest",
                                 command=["/bin/sh", "-c"],
                                 args=[
-                                    # Set AWS credentials from S3 env vars and download config
+                                    # Set AWS credentials and download config
                                     "export AWS_ACCESS_KEY_ID=$S3_ACCESS_KEY_ID && "
                                     "export AWS_SECRET_ACCESS_KEY=$S3_SECRET_ACCESS_KEY && "
-                                    "aws --endpoint-url $S3_ENDPOINT_URL s3 cp s3://$S3_BUCKET/$CONFIG_S3_KEY /workspace/config.toml"
+                                    "aws --endpoint-url $S3_ENDPOINT_URL s3 cp s3://$S3_BUCKET/$CONFIG_S3_KEY /workspace/config.toml && "
+                                    # Check if config has extra_fasta and download it if present
+                                    "if grep -q \"extra_fasta = 'uploads/\" /workspace/config.toml; then "
+                                    "  FASTA_KEY=$(grep \"extra_fasta = '\" /workspace/config.toml | sed \"s/extra_fasta = '\\(.*\\)'/\\1/\"); "
+                                    "  echo \"Downloading fasta file: $FASTA_KEY\"; "
+                                    "  aws --endpoint-url $S3_ENDPOINT_URL s3 cp s3://$S3_BUCKET/$FASTA_KEY /workspace/sequences.fasta && "
+                                    "  sed -i \"s|extra_fasta = '.*'|extra_fasta = '/workspace/sequences.fasta'|\" /workspace/config.toml; "
+                                    "fi"
                                 ],
                                 env=env_vars,
                                 env_from=env_from if env_from else None,
@@ -280,7 +287,8 @@ def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
                             client.V1Container(
                                 name="viral-usher-worker",
                                 image=K8S_JOB_IMAGE,
-                                command=["viral_usher_build"],
+                                image_pull_policy="Never",  # Use local image from k3d
+                                command=["viral_usher_build_wrapper"],
                                 args=["--config", "/workspace/config.toml"],
                                 env=env_vars,
                                 env_from=env_from if env_from else None,
@@ -321,7 +329,7 @@ def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
 
 
 @app.get("/api/job-logs/{job_name}")
-async def get_job_logs(job_name: str):
+async def get_job_logs(job_name: str, request: Request):
     """Get logs from a Kubernetes job"""
     try:
         # Load kubernetes config
@@ -421,11 +429,98 @@ async def get_job_logs(job_name: str):
         except Exception as e:
             logs["main"] = f"Could not get main container logs: {str(e)}"
 
+        # Parse S3 output from logs if present
+        s3_results = None
+        if "main" in logs and isinstance(logs["main"], str):
+            import re
+            import json
+
+            # Look for incremental file uploads
+            file_urls = []
+            bucket = None
+            prefix = None
+            upload_complete = False
+
+            # Find all incremental file uploads
+            for match in re.finditer(r'__S3_FILE_UPLOADED__(.+?)__S3_FILE_END__', logs["main"]):
+                try:
+                    file_info = json.loads(match.group(1))
+                    bucket = file_info["bucket"]
+                    prefix = file_info["prefix"]
+
+                    # Use relative URL so it works with any host (localhost, Codespaces, etc.)
+                    url = f"/minio-api/{bucket}/{file_info['s3_key']}"
+
+                    file_entry = {
+                        "filename": file_info["filename"],
+                        "url": url,
+                        "s3_key": file_info["s3_key"]
+                    }
+
+                    # For .jsonl.gz files, mark it for Taxonium (let frontend construct the URL)
+                    if file_info["filename"].endswith(".jsonl.gz"):
+                        file_entry["is_taxonium"] = True
+
+                    file_urls.append(file_entry)
+                except Exception as e:
+                    print(f"Error parsing S3 file info: {e}", file=sys.stderr)
+
+            # Check if upload is complete
+            if "__S3_UPLOAD_COMPLETE__" in logs["main"]:
+                upload_complete = True
+
+            # If we have files, create s3_results
+            if file_urls:
+                s3_results = {
+                    "bucket": bucket,
+                    "prefix": prefix,
+                    "total_files": len(file_urls),
+                    "files": file_urls,
+                    "upload_complete": upload_complete
+                }
+
+            # Also check for old-style batch output (for backwards compatibility)
+            if not s3_results:
+                match = re.search(r'__VIRAL_USHER_S3_OUTPUT_START__\n(.*?)\n__VIRAL_USHER_S3_OUTPUT_END__', logs["main"], re.DOTALL)
+                if match:
+                    try:
+                        s3_data = json.loads(match.group(1))
+                        bucket = s3_data["s3_bucket"]
+                        prefix = s3_data["s3_prefix"]
+
+                        # Create download URLs for each file
+                        file_urls = []
+                        for file_key in s3_data["uploaded_files"]:
+                            url = f"/minio-api/{bucket}/{file_key}"
+                            filename = file_key.replace(f"{prefix}/", "")
+                            file_entry = {
+                                "filename": filename,
+                                "url": url,
+                                "s3_key": file_key
+                            }
+
+                            # For .jsonl.gz files, mark it for Taxonium (let frontend construct the URL)
+                            if filename.endswith(".jsonl.gz"):
+                                file_entry["is_taxonium"] = True
+
+                            file_urls.append(file_entry)
+
+                        s3_results = {
+                            "bucket": bucket,
+                            "prefix": prefix,
+                            "total_files": s3_data["total_files"],
+                            "files": file_urls,
+                            "upload_complete": True
+                        }
+                    except Exception as e:
+                        print(f"Error parsing S3 output: {e}", file=sys.stderr)
+
         return {
             "job_name": job_name,
             "status": job_status,
             "pod_name": pod_name,
-            "logs": logs
+            "logs": logs,
+            "s3_results": s3_results
         }
     except HTTPException:
         raise

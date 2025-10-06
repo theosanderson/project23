@@ -64,8 +64,8 @@ RUN adduser \
 # Done with all the apt-get stuff, clean up to save space.
 RUN apt-get autoclean && rm -rf /var/lib/apt/lists/*
 
-# Install usher_to_taxonium
-RUN python3 -m pip install taxoniumtools
+# Install usher_to_taxonium and boto3 for S3 uploads
+RUN python3 -m pip install taxoniumtools boto3
 
 # Copy the python source code and Rust app bin into the container.
 WORKDIR /app
@@ -85,6 +85,10 @@ COPY --from=build /usher/usher/build/usher /usher/usher/build/usher-sampled \
     /usher/usher/build/matUtils /usher/usher/build/matOptimize \
     /usher/usher/build/faToVcf \
     /app/bin/
+
+# Copy supplemental wrapper script for S3 uploads
+COPY supplemental_viral_usher_build/viral_usher_build_wrapper.py /app/bin/viral_usher_build_wrapper
+RUN chmod +x /app/bin/viral_usher_build_wrapper
 
 # Switch to the non-privileged user to run the application.
 USER appuser
