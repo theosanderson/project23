@@ -2,7 +2,7 @@
 replicaCount: 1
 
 image:
-  repository: viral-usher-web
+  repository: ghcr.io/theosanderson/project23/viral-usher-web
   pullPolicy: IfNotPresent
   tag: "latest"
 
@@ -99,9 +99,9 @@ s3:
 # Kubernetes job configuration
 job:
   image:
-    repository: viral-usher-web-worker
-    tag: "fresh"
-    pullPolicy: Never
+    repository: ghcr.io/theosanderson/project23/viral-usher-worker
+    tag: "latest"
+    pullPolicy: IfNotPresent
   # Service account for jobs (needs permissions to create jobs)
   serviceAccount:
     create: true

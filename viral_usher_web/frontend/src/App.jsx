@@ -149,6 +149,10 @@ function App() {
 
   // Generate config
   const generateConfig = async () => {
+    // Stop any previous polling and clear old job logs
+    stopJobLogPolling();
+    setJobLogs(null);
+
     setLoading(true);
     setError('');
 
