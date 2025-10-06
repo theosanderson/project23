@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 function App() {
   // Step tracking
@@ -180,255 +180,297 @@ function App() {
   };
 
   return (
-    <div className="container">
-      <h1>Viral Usher Configuration</h1>
-      <p className="subtitle">Create a configuration file for building viral phylogenetic trees</p>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
+      <div className="max-w-4xl mx-auto">
+        <div className="bg-white rounded-xl shadow-lg p-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Viral Usher Configuration</h1>
+          <p className="text-gray-600 mb-8">Create a configuration file for building viral phylogenetic trees</p>
 
-      {/* Step 1: Species Search */}
-      <div className="form-section">
-        <h2 className="section-title">1. Select Virus Species</h2>
-        <div className="form-group">
-          <label>Search for your virus of interest:</label>
-          <input
-            type="text"
-            value={speciesSearch}
-            onChange={(e) => setSpeciesSearch(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && searchSpecies()}
-            placeholder="e.g., Zika virus, SARS-CoV-2, Influenza A"
-          />
-          <button
-            className="search-button"
-            onClick={searchSpecies}
-            disabled={loading || !speciesSearch.trim()}
-            style={{ marginTop: '10px' }}
-          >
-            {loading ? 'Searching...' : 'Search'}
-          </button>
-        </div>
-
-        {taxonomyResults.length > 0 && !selectedTaxonomy && !loadingRefSeqs && (
-          <div className="results-list">
-            {taxonomyResults.map((tax) => (
-              <div
-                key={tax.tax_id}
-                className="result-item"
-                onClick={() => selectTaxonomy(tax)}
-              >
-                {tax.sci_name} (Tax ID: {tax.tax_id})
-              </div>
-            ))}
-          </div>
-        )}
-
-        {loadingRefSeqs && <div className="loading"><div className="spinner"></div>Loading RefSeq entries...</div>}
-
-        {selectedTaxonomy && !loadingRefSeqs && (
-          <div className="selected-item">
-            <strong>Selected:</strong> {selectedTaxonomy.sci_name} (Tax ID: {selectedTaxonomy.tax_id})
-            <button
-              className="search-button"
-              onClick={() => {
-                setSelectedTaxonomy(null);
-                setRefseqResults([]);
-                setSelectedRefseq(null);
-                setAssemblyId('');
-                setNextcladeDatasets([]);
-                setSelectedNextclade(null);
-                setCurrentStep(1);
-              }}
-              style={{ marginLeft: '10px', padding: '6px 12px', fontSize: '0.9rem' }}
-            >
-              Change
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Step 2: RefSeq Selection */}
-      {currentStep >= 2 && (
-        <div className="form-section">
-          <h2 className="section-title">2. Select Reference Sequence</h2>
-          {loadingRefSeqs && <div className="loading"><div className="spinner"></div>Loading RefSeq entries...</div>}
-          {refseqResults.length > 0 && !selectedRefseq && !loadingRefSeqs && (
-            <div className="results-list">
-              {refseqResults.map((refseq, idx) => (
-                <div
-                  key={idx}
-                  className="result-item"
-                  onClick={() => selectRefseq(refseq)}
+          {/* Step 1: Species Search */}
+          <div className="mb-8">
+            <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">1. Select Virus Species</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Search for your virus of interest:</label>
+                <input
+                  type="text"
+                  value={speciesSearch}
+                  onChange={(e) => setSpeciesSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && searchSpecies()}
+                  placeholder="e.g., Zika virus, SARS-CoV-2, Influenza A"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                />
+                <button
+                  onClick={searchSpecies}
+                  disabled={loading || !speciesSearch.trim()}
+                  className="mt-3 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium"
                 >
-                  <strong>{refseq.accession}</strong>: {refseq.title}
-                  {refseq.strain && refseq.strain !== 'No strain' && (
-                    <div style={{ fontSize: '0.9em', color: '#666' }}>
-                      Strain: {refseq.strain}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+                  {loading ? 'Searching...' : 'Search'}
+                </button>
+              </div>
 
-          {loadingAssembly && <div className="loading"><div className="spinner"></div>Loading assembly information...</div>}
-          {selectedRefseq && !loadingAssembly && (
-            <div className="selected-item">
-              <strong>Selected RefSeq:</strong> {selectedRefseq.accession}
-              <br />
-              <strong>Assembly:</strong> {assemblyId}
-              <button
-                className="search-button"
-                onClick={() => {
-                  setSelectedRefseq(null);
-                  setAssemblyId('');
-                  setNextcladeDatasets([]);
-                  setSelectedNextclade(null);
-                  setCurrentStep(2);
-                }}
-                style={{ marginLeft: '10px', padding: '6px 12px', fontSize: '0.9rem' }}
-              >
-                Change
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Step 3: Configuration Parameters */}
-      {currentStep >= 3 && (
-        <>
-          <div className="form-section">
-            <h2 className="section-title">3. Nextclade Dataset (Optional)</h2>
-            {nextcladeDatasets.length > 0 ? (
-              <>
-                <div className="results-list">
-                  {nextcladeDatasets.map((dataset, idx) => (
+              {taxonomyResults.length > 0 && !selectedTaxonomy && !loadingRefSeqs && (
+                <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+                  {taxonomyResults.map((tax) => (
                     <div
-                      key={idx}
-                      className="result-item"
-                      onClick={() => setSelectedNextclade(dataset)}
-                      style={{
-                        background: selectedNextclade?.path === dataset.path ? '#f0f4ff' : 'transparent'
-                      }}
+                      key={tax.tax_id}
+                      onClick={() => selectTaxonomy(tax)}
+                      className="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0 transition"
                     >
-                      <strong>{dataset.path}</strong>
-                      <br />
-                      <span style={{ fontSize: '0.9em', color: '#666' }}>{dataset.name}</span>
+                      {tax.sci_name} <span className="text-gray-500">(Tax ID: {tax.tax_id})</span>
                     </div>
                   ))}
                 </div>
-                {selectedNextclade && (
-                  <div className="selected-item" style={{ marginTop: '10px' }}>
-                    <strong>Selected:</strong> {selectedNextclade.path}
+              )}
+
+              {loadingRefSeqs && (
+                <div className="flex items-center gap-2 text-blue-600">
+                  <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                  Loading RefSeq entries...
+                </div>
+              )}
+
+              {selectedTaxonomy && !loadingRefSeqs && (
+                <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 flex items-center justify-between">
+                  <div>
+                    <span className="font-medium">Selected:</span> {selectedTaxonomy.sci_name} <span className="text-gray-600">(Tax ID: {selectedTaxonomy.tax_id})</span>
                   </div>
+                  <button
+                    onClick={() => {
+                      setSelectedTaxonomy(null);
+                      setRefseqResults([]);
+                      setSelectedRefseq(null);
+                      setAssemblyId('');
+                      setNextcladeDatasets([]);
+                      setSelectedNextclade(null);
+                      setCurrentStep(1);
+                    }}
+                    className="px-4 py-1 text-sm bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition"
+                  >
+                    Change
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Step 2: RefSeq Selection */}
+          {currentStep >= 2 && (
+            <div className="mb-8">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">2. Select Reference Sequence</h2>
+              {loadingRefSeqs && (
+                <div className="flex items-center gap-2 text-blue-600">
+                  <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                  Loading RefSeq entries...
+                </div>
+              )}
+              {refseqResults.length > 0 && !selectedRefseq && !loadingRefSeqs && (
+                <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+                  {refseqResults.map((refseq, idx) => (
+                    <div
+                      key={idx}
+                      className="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0 transition"
+                      onClick={() => selectRefseq(refseq)}
+                    >
+                      <strong className="text-gray-900">{refseq.accession}</strong>: {refseq.title}
+                      {refseq.strain && refseq.strain !== 'No strain' && (
+                        <div className="text-sm text-gray-600 mt-1">
+                          Strain: {refseq.strain}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {loadingAssembly && (
+                <div className="flex items-center gap-2 text-blue-600">
+                  <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                  Loading assembly information...
+                </div>
+              )}
+              {selectedRefseq && !loadingAssembly && (
+                <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 flex items-center justify-between">
+                  <div>
+                    <div className="mb-1">
+                      <strong className="text-gray-900">Selected RefSeq:</strong> {selectedRefseq.accession}
+                    </div>
+                    <div>
+                      <strong className="text-gray-900">Assembly:</strong> {assemblyId}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setSelectedRefseq(null);
+                      setAssemblyId('');
+                      setNextcladeDatasets([]);
+                      setSelectedNextclade(null);
+                      setCurrentStep(2);
+                    }}
+                    className="px-4 py-1 text-sm bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition"
+                  >
+                    Change
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 3: Configuration Parameters */}
+          {currentStep >= 3 && (
+            <>
+              <div className="mb-8">
+                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">3. Nextclade Dataset (Optional)</h2>
+                {nextcladeDatasets.length > 0 ? (
+                  <>
+                    <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+                      {nextcladeDatasets.map((dataset, idx) => (
+                        <div
+                          key={idx}
+                          className={`px-4 py-3 cursor-pointer border-b border-gray-100 last:border-b-0 transition ${
+                            selectedNextclade?.path === dataset.path
+                              ? 'bg-blue-50 border-l-4 border-l-blue-500'
+                              : 'hover:bg-blue-50'
+                          }`}
+                          onClick={() => setSelectedNextclade(dataset)}
+                        >
+                          <strong className="text-gray-900">{dataset.path}</strong>
+                          <br />
+                          <span className="text-sm text-gray-600">{dataset.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedNextclade && (
+                      <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mt-4">
+                        <strong className="text-gray-900">Selected:</strong> {selectedNextclade.path}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-600 italic">No Nextclade datasets found for this species.</p>
                 )}
-              </>
-            ) : (
-              <p className="help-text">No Nextclade datasets found for this species.</p>
-            )}
-          </div>
-
-          <div className="form-section">
-            <h2 className="section-title">4. Filtering Parameters</h2>
-            <div className="grid-2">
-              <div className="form-group">
-                <label>
-                  Minimum Length Proportion
-                  <div className="help-text">Filter sequences by minimum length (0-1)</div>
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="1"
-                  value={minLengthProportion}
-                  onChange={(e) => setMinLengthProportion(e.target.value)}
-                />
               </div>
 
-              <div className="form-group">
-                <label>
-                  Maximum N Proportion
-                  <div className="help-text">Maximum proportion of ambiguous bases (0-1)</div>
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="1"
-                  value={maxNProportion}
-                  onChange={(e) => setMaxNProportion(e.target.value)}
-                />
+              <div className="mb-8">
+                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">4. Filtering Parameters</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Minimum Length Proportion
+                      <div className="text-xs text-gray-500 font-normal mt-1">Filter sequences by minimum length (0-1)</div>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="1"
+                      value={minLengthProportion}
+                      onChange={(e) => setMinLengthProportion(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Maximum N Proportion
+                      <div className="text-xs text-gray-500 font-normal mt-1">Maximum proportion of ambiguous bases (0-1)</div>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="1"
+                      value={maxNProportion}
+                      onChange={(e) => setMaxNProportion(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Maximum Parsimony
+                      <div className="text-xs text-gray-500 font-normal mt-1">Maximum private substitutions allowed</div>
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={maxParsimony}
+                      onChange={(e) => setMaxParsimony(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Maximum Branch Length
+                      <div className="text-xs text-gray-500 font-normal mt-1">Maximum substitutions per branch</div>
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={maxBranchLength}
+                      onChange={(e) => setMaxBranchLength(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div className="form-group">
-                <label>
-                  Maximum Parsimony
-                  <div className="help-text">Maximum private substitutions allowed</div>
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={maxParsimony}
-                  onChange={(e) => setMaxParsimony(e.target.value)}
-                />
+              <div className="mb-8">
+                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">5. Working Directory</h2>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Directory for data and output files
+                    <div className="text-xs text-gray-500 font-normal mt-1">Where sequences will be downloaded and trees built</div>
+                  </label>
+                  <input
+                    type="text"
+                    value={workdir}
+                    onChange={(e) => setWorkdir(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                  />
+                </div>
               </div>
 
-              <div className="form-group">
-                <label>
-                  Maximum Branch Length
-                  <div className="help-text">Maximum substitutions per branch</div>
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={maxBranchLength}
-                  onChange={(e) => setMaxBranchLength(e.target.value)}
-                />
+              <button
+                onClick={generateConfig}
+                disabled={loading}
+                className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium text-lg"
+              >
+                {loading ? 'Generating...' : 'Generate Configuration File'}
+              </button>
+            </>
+          )}
+
+          {error && (
+            <div className="mt-6 bg-red-50 border-2 border-red-200 rounded-lg p-4 text-red-700">
+              {error}
+            </div>
+          )}
+
+          {success && (
+            <div className="mt-6 bg-green-50 border-2 border-green-200 rounded-lg p-6">
+              <h3 className="text-xl font-semibold text-green-800 mb-4">Configuration Created Successfully!</h3>
+              <p className="mb-4">
+                <strong className="text-gray-900">Config file:</strong> <code className="bg-white px-2 py-1 rounded text-sm text-gray-800 border border-gray-200">{success.config_path}</code>
+              </p>
+              <p className="mb-3">
+                <strong className="text-gray-900">Next step:</strong> Run the following command to build your tree:
+              </p>
+              <div className="bg-white p-4 rounded-lg border border-gray-200 font-mono text-sm text-gray-800">
+                viral_usher build --config {success.config_path}
               </div>
             </div>
-          </div>
+          )}
 
-          <div className="form-section">
-            <h2 className="section-title">5. Working Directory</h2>
-            <div className="form-group">
-              <label>
-                Directory for data and output files
-                <div className="help-text">Where sequences will be downloaded and trees built</div>
-              </label>
-              <input
-                type="text"
-                value={workdir}
-                onChange={(e) => setWorkdir(e.target.value)}
-              />
+          {loading && (
+            <div className="mt-6 flex items-center gap-2 text-blue-600 justify-center">
+              <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+              Loading...
             </div>
-          </div>
-
-          <button
-            className="submit-button"
-            onClick={generateConfig}
-            disabled={loading}
-            style={{ width: '100%', marginTop: '20px' }}
-          >
-            {loading ? 'Generating...' : 'Generate Configuration File'}
-          </button>
-        </>
-      )}
-
-      {error && <div className="error">{error}</div>}
-
-      {success && (
-        <div className="success">
-          <h3>Configuration Created Successfully!</h3>
-          <p><strong>Config file:</strong> <code>{success.config_path}</code></p>
-          <p style={{ marginTop: '15px' }}>
-            <strong>Next step:</strong> Run the following command to build your tree:
-          </p>
-          <p style={{ marginTop: '10px', background: 'white', padding: '12px', borderRadius: '6px', fontFamily: 'monospace' }}>
-            viral_usher build --config {success.config_path}
-          </p>
+          )}
         </div>
-      )}
-
-      {loading && <div className="loading"><div className="spinner"></div>Loading...</div>}
+      </div>
     </div>
   );
 }
