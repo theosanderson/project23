@@ -627,8 +627,7 @@ function App() {
                           <div className="flex gap-2">
                             {file.is_taxonium && (() => {
                               // Construct Taxonium URL client-side
-                              const fullUrl = `${window.location.origin}${file.url}`;
-                              const encodedUrl = encodeURIComponent(fullUrl);
+                              const encodedUrl = encodeURIComponent(file.url);
                               const taxoniumUrl = `https://taxonium.org/?protoUrl=${encodedUrl}&xType=x_dist`;
                               return (
                                 <a
