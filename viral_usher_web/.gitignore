@@ -63,3 +63,8 @@ viral_usher_data/
 *.newick
 *.jsonl
 *.jsonl.gz
+
+# Helm
+helm/*/charts/
+helm/*/*.tgz
+helm/*/Chart.lock
