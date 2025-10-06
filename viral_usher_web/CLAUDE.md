@@ -24,18 +24,42 @@ This creates a cluster named `viral-usher` with:
 - API server on port 6550
 - Load balancer with port mapping 8080:80
 
-### 2. Build and Import Docker Image
+### 2. Build and Import Docker Images
 
-Whenever you make changes to the code, rebuild and import the image:
+The project has TWO Docker images that need to be built:
 
+1. **viral-usher-web** (FastAPI backend + React frontend)
+2. **viral-usher-web-worker** (Worker image with UShER, nextclade, datasets tools)
+
+**IMPORTANT**: The worker image is built from `../Dockerfile.worker` (in the parent directory) and requires a clean build to avoid Docker cache issues.
+
+#### Quick rebuild (web image only):
 ```bash
 ./build_and_import.sh
 ```
 
-This script:
-- Builds the Docker image as `viral-usher-web:latest`
-- Imports it into the k3d cluster
-- Shows the command to restart the deployment
+#### Full rebuild (including worker - USE THIS when Dockerfile.worker changes):
+```bash
+# Build worker image from scratch (IMPORTANT: use --no-cache to avoid stale cache)
+cd /Users/theosanderson/project23
+docker build --no-cache -f Dockerfile.worker -t viral-usher-web-worker:fresh .
+
+# Import into k3d
+k3d image import viral-usher-web-worker:fresh -c viral-usher
+
+# Build and import web image
+cd viral_usher_web
+./build_and_import.sh
+
+# Update Helm to use the fresh worker image (if tag changed)
+# Edit helm/viral-usher-web/values.yaml -> job.image.tag: "fresh"
+helm upgrade viral-usher ./helm/viral-usher-web --namespace viral-usher
+
+# Restart deployment
+kubectl rollout restart deployment viral-usher-viral-usher-web -n viral-usher
+```
+
+**Note**: The `build_and_import.sh` script builds BOTH images, but if you're having image caching issues with the worker, use the manual steps above with `--no-cache`.
 
 ### 3. Deploy with Helm
 
@@ -179,6 +203,40 @@ Check MinIO is running:
 kubectl get pods -n viral-usher -l app=minio
 kubectl logs -n viral-usher -l app=minio
 ```
+
+### Worker image cache issues
+
+If you're seeing old worker images being used even after rebuilding:
+
+1. **Docker build cache**: Docker may cache layers even when Dockerfile changes. Always use `--no-cache`:
+   ```bash
+   docker build --no-cache -f Dockerfile.worker -t viral-usher-web-worker:fresh .
+   ```
+
+2. **k3d import cache**: k3d may have old images cached. Delete old images first:
+   ```bash
+   # Delete from all k3d nodes
+   docker exec k3d-viral-usher-server-0 crictl rmi docker.io/library/viral-usher-web-worker:<old-tag>
+   docker exec k3d-viral-usher-agent-0 crictl rmi docker.io/library/viral-usher-web-worker:<old-tag>
+   docker exec k3d-viral-usher-agent-1 crictl rmi docker.io/library/viral-usher-web-worker:<old-tag>
+
+   # Then import fresh
+   k3d image import viral-usher-web-worker:fresh -c viral-usher
+   ```
+
+3. **Verify images match**:
+   ```bash
+   # Check local Docker image ID
+   docker images viral-usher-web-worker:fresh --format "{{.ID}}"
+
+   # Check k3d image ID
+   docker exec k3d-viral-usher-server-0 crictl images | grep fresh
+   ```
+
+4. **Update Helm values**: Make sure `job.image.tag` in `values.yaml` matches your image tag and upgrade Helm:
+   ```bash
+   helm upgrade viral-usher ./helm/viral-usher-web --namespace viral-usher
+   ```
 
 ## Cleanup
 

@@ -34,6 +34,8 @@ function App() {
   const [loadingAssembly, setLoadingAssembly] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(null);
+  const [jobLogs, setJobLogs] = useState(null);
+  const [pollingInterval, setPollingInterval] = useState(null);
 
   // API base URL
   const API_BASE = '/api';
@@ -182,10 +184,54 @@ function App() {
 
       const data = await response.json();
       setSuccess(data);
+
+      // Start polling for job logs if a job was created
+      if (data.job_info && data.job_info.success && data.job_info.job_name) {
+        startJobLogPolling(data.job_info.job_name);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch job logs
+  const fetchJobLogs = async (jobName) => {
+    try {
+      const response = await fetch(`${API_BASE}/job-logs/${jobName}`);
+      if (!response.ok) return;
+
+      const data = await response.json();
+      setJobLogs(data);
+
+      // Stop polling if job is complete
+      if (data.status === 'succeeded' || data.status === 'failed') {
+        stopJobLogPolling();
+      }
+    } catch (err) {
+      console.error('Failed to fetch job logs:', err);
+    }
+  };
+
+  // Start polling for job logs
+  const startJobLogPolling = (jobName) => {
+    // Clear any existing interval
+    stopJobLogPolling();
+
+    // Fetch immediately
+    fetchJobLogs(jobName);
+
+    // Then poll every 3 seconds
+    const interval = setInterval(() => fetchJobLogs(jobName), 3000);
+    setPollingInterval(interval);
+  };
+
+  // Stop polling
+  const stopJobLogPolling = () => {
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+      setPollingInterval(null);
     }
   };
 
@@ -543,6 +589,57 @@ function App() {
                 <div className="bg-white p-4 rounded-lg border border-gray-200 font-mono text-sm text-gray-800">
                   viral_usher build --config {success.config_path}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {jobLogs && (
+            <div className="mt-6 bg-gray-50 border-2 border-gray-300 rounded-lg p-6">
+              <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                Job Status:
+                <span className={`px-3 py-1 rounded text-sm font-medium ${
+                  jobLogs.status === 'succeeded' ? 'bg-green-100 text-green-800' :
+                  jobLogs.status === 'failed' ? 'bg-red-100 text-red-800' :
+                  'bg-blue-100 text-blue-800'
+                }`}>
+                  {jobLogs.status}
+                </span>
+              </h3>
+
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Job Name: <code className="text-gray-800">{jobLogs.job_name}</code></p>
+                  {jobLogs.pod_name && <p className="text-sm text-gray-600">Pod: <code className="text-gray-800">{jobLogs.pod_name}</code></p>}
+                </div>
+
+                {jobLogs.logs && typeof jobLogs.logs === 'object' && (
+                  <>
+                    {jobLogs.logs.init && (
+                      <div>
+                        <h4 className="font-semibold text-gray-700 mb-2">Init Container (Download Config):</h4>
+                        <pre className="bg-black text-green-400 p-4 rounded-lg overflow-x-auto text-xs font-mono">
+{jobLogs.logs.init}
+                        </pre>
+                      </div>
+                    )}
+
+                    {jobLogs.logs.main && (
+                      <div>
+                        <h4 className="font-semibold text-gray-700 mb-2">Main Container (Viral Usher):</h4>
+                        <pre className="bg-black text-green-400 p-4 rounded-lg overflow-x-auto text-xs font-mono max-h-96">
+{jobLogs.logs.main}
+                        </pre>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {jobLogs.status === 'running' && (
+                  <div className="flex items-center gap-2 text-blue-600 text-sm">
+                    <div className="w-4 h-4 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                    Job is running... (auto-refreshing every 3 seconds)
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -99,9 +99,9 @@ s3:
 # Kubernetes job configuration
 job:
   image:
-    repository: viral-usher-worker
-    tag: "latest"
-    pullPolicy: IfNotPresent
+    repository: viral-usher-web-worker
+    tag: "fresh"
+    pullPolicy: Never
   # Service account for jobs (needs permissions to create jobs)
   serviceAccount:
     create: true
@@ -109,7 +109,7 @@ job:
 
 # Application configuration
 app:
-  namespace: default
+  namespace: viral-usher
   # CORS origins for development
   corsOrigins:
     - http://localhost:3000

@@ -243,21 +243,60 @@ def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
                 client.V1EnvVar(name="S3_SECRET_ACCESS_KEY", value=S3_SECRET_ACCESS_KEY),
             ])
 
-        # TODO: Fill in the exact job template
+        # Create job with initContainer to download config from S3
         job = client.V1Job(
             api_version="batch/v1",
             kind="Job",
             metadata=client.V1ObjectMeta(name=job_name),
             spec=client.V1JobSpec(
+                backoff_limit=3,
                 template=client.V1PodTemplateSpec(
                     spec=client.V1PodSpec(
                         restart_policy="Never",
+                        # InitContainer to download config from S3
+                        init_containers=[
+                            client.V1Container(
+                                name="download-config",
+                                image="amazon/aws-cli:latest",
+                                command=["/bin/sh", "-c"],
+                                args=[
+                                    # Set AWS credentials from S3 env vars and download config
+                                    "export AWS_ACCESS_KEY_ID=$S3_ACCESS_KEY_ID && "
+                                    "export AWS_SECRET_ACCESS_KEY=$S3_SECRET_ACCESS_KEY && "
+                                    "aws --endpoint-url $S3_ENDPOINT_URL s3 cp s3://$S3_BUCKET/$CONFIG_S3_KEY /workspace/config.toml"
+                                ],
+                                env=env_vars,
+                                env_from=env_from if env_from else None,
+                                volume_mounts=[
+                                    client.V1VolumeMount(
+                                        name="workspace",
+                                        mount_path="/workspace"
+                                    )
+                                ]
+                            )
+                        ],
+                        # Main container to run viral_usher
                         containers=[
                             client.V1Container(
                                 name="viral-usher-worker",
                                 image=K8S_JOB_IMAGE,
+                                command=["viral_usher_build"],
+                                args=["--config", "/workspace/config.toml"],
                                 env=env_vars,
                                 env_from=env_from if env_from else None,
+                                volume_mounts=[
+                                    client.V1VolumeMount(
+                                        name="workspace",
+                                        mount_path="/workspace"
+                                    )
+                                ]
+                            )
+                        ],
+                        # Shared volume for passing config between containers
+                        volumes=[
+                            client.V1Volume(
+                                name="workspace",
+                                empty_dir=client.V1EmptyDirVolumeSource()
                             )
                         ]
                     )
@@ -279,6 +318,86 @@ def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Kubernetes job creation failed: {str(e)}")
+
+
+@app.get("/api/job-logs/{job_name}")
+async def get_job_logs(job_name: str):
+    """Get logs from a Kubernetes job"""
+    try:
+        # Load kubernetes config
+        try:
+            k8s_config.load_incluster_config()
+        except k8s_config.ConfigException:
+            k8s_config.load_kube_config()
+
+        core_v1 = client.CoreV1Api()
+        batch_v1 = client.BatchV1Api()
+
+        # Get the job to check its status
+        try:
+            job = batch_v1.read_namespaced_job(name=job_name, namespace=K8S_NAMESPACE)
+        except Exception as e:
+            raise HTTPException(status_code=404, detail=f"Job not found: {str(e)}")
+
+        # Get pods for this job
+        pods = core_v1.list_namespaced_pod(
+            namespace=K8S_NAMESPACE,
+            label_selector=f"job-name={job_name}"
+        )
+
+        if not pods.items:
+            return {
+                "job_name": job_name,
+                "status": "pending",
+                "logs": "No pods found yet for this job"
+            }
+
+        # Get the most recent pod
+        pod = pods.items[-1]
+        pod_name = pod.metadata.name
+
+        # Determine job status
+        job_status = "running"
+        if job.status.succeeded:
+            job_status = "succeeded"
+        elif job.status.failed:
+            job_status = "failed"
+
+        # Get logs from all containers
+        logs = {}
+
+        # Get init container logs (download-config)
+        try:
+            init_logs = core_v1.read_namespaced_pod_log(
+                name=pod_name,
+                namespace=K8S_NAMESPACE,
+                container="download-config"
+            )
+            logs["init"] = init_logs
+        except Exception as e:
+            logs["init"] = f"Could not get init container logs: {str(e)}"
+
+        # Get main container logs (viral-usher-worker)
+        try:
+            main_logs = core_v1.read_namespaced_pod_log(
+                name=pod_name,
+                namespace=K8S_NAMESPACE,
+                container="viral-usher-worker"
+            )
+            logs["main"] = main_logs
+        except Exception as e:
+            logs["main"] = f"Could not get main container logs: {str(e)}"
+
+        return {
+            "job_name": job_name,
+            "status": job_status,
+            "pod_name": pod_name,
+            "logs": logs
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get job logs: {str(e)}")
 
 
 @app.post("/api/generate-config")
