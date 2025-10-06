@@ -24,7 +24,8 @@ S3_SECRET_ACCESS_KEY = os.getenv('S3_SECRET_ACCESS_KEY', '')
 
 # Kubernetes Configuration
 K8S_NAMESPACE = os.getenv('K8S_NAMESPACE', 'default')
-K8S_JOB_IMAGE = os.getenv('K8S_JOB_IMAGE', 'YOUR_IMAGE_HERE')
+K8S_JOB_IMAGE = os.getenv('K8S_JOB_IMAGE')  # Set via Helm values
+K8S_JOB_IMAGE_PULL_POLICY = os.getenv('K8S_JOB_IMAGE_PULL_POLICY', 'IfNotPresent')
 K8S_S3_SECRET_NAME = os.getenv('K8S_S3_SECRET_NAME', '')  # Optional: use k8s secret instead of env vars
 
 # Initialize S3 client if configured
@@ -287,7 +288,7 @@ def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
                             client.V1Container(
                                 name="viral-usher-worker",
                                 image=K8S_JOB_IMAGE,
-                                image_pull_policy="Never",  # Use local image from k3d
+                                image_pull_policy=K8S_JOB_IMAGE_PULL_POLICY,
                                 command=["viral_usher_build_wrapper"],
                                 args=["--config", "/workspace/config.toml"],
                                 env=env_vars,

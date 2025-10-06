@@ -46,6 +46,8 @@ spec:
           value: {{ .Values.app.namespace | quote }}
         - name: K8S_JOB_IMAGE
           value: "{{ .Values.job.image.repository }}:{{ .Values.job.image.tag }}"
+        - name: K8S_JOB_IMAGE_PULL_POLICY
+          value: {{ .Values.job.image.pullPolicy | quote }}
         - name: S3_BUCKET
           value: {{ .Values.s3.bucket | quote }}
         - name: S3_REGION
