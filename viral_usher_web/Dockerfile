@@ -32,8 +32,8 @@ COPY backend/ ./backend/
 # Copy built frontend from previous stage
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
-# Create directory for viral_usher data
-RUN mkdir -p /data
+# Create directory for viral_usher data with proper permissions
+RUN mkdir -p /data && chmod 777 /data
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

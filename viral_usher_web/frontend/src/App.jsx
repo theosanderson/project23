@@ -26,7 +26,7 @@ function App() {
   const [maxNProportion, setMaxNProportion] = useState('0.05');
   const [maxParsimony, setMaxParsimony] = useState('10');
   const [maxBranchLength, setMaxBranchLength] = useState('10');
-  const [workdir, setWorkdir] = useState('./viral_usher_data');
+  const [workdir, setWorkdir] = useState('/data/viral_usher_data');
 
   // UI state
   const [loading, setLoading] = useState(false);
