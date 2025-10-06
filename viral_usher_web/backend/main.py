@@ -336,8 +336,17 @@ async def get_job_logs(job_name: str):
         # Get the job to check its status
         try:
             job = batch_v1.read_namespaced_job(name=job_name, namespace=K8S_NAMESPACE)
+        except client.exceptions.ApiException as e:
+            if e.status == 404:
+                # Job doesn't exist yet or was deleted
+                return {
+                    "job_name": job_name,
+                    "status": "not_found",
+                    "logs": "Job not found. It may not have been created yet or has been deleted."
+                }
+            raise HTTPException(status_code=500, detail=f"Error reading job: {str(e)}")
         except Exception as e:
-            raise HTTPException(status_code=404, detail=f"Job not found: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error reading job: {str(e)}")
 
         # Get pods for this job
         pods = core_v1.list_namespaced_pod(
@@ -366,6 +375,16 @@ async def get_job_logs(job_name: str):
         # Get logs from all containers
         logs = {}
 
+        # Check pod phase to provide better messages
+        pod_phase = pod.status.phase
+        if pod_phase in ["Pending"]:
+            logs["info"] = f"Pod is in {pod_phase} phase. Containers have not started yet."
+            # Try to get more details about why it's pending
+            if pod.status.conditions:
+                for condition in pod.status.conditions:
+                    if condition.status == "False":
+                        logs["info"] += f" {condition.reason}: {condition.message}"
+
         # Get init container logs (download-config)
         try:
             init_logs = core_v1.read_namespaced_pod_log(
@@ -374,6 +393,13 @@ async def get_job_logs(job_name: str):
                 container="download-config"
             )
             logs["init"] = init_logs
+        except client.exceptions.ApiException as e:
+            if e.status == 400 and "ContainerCreating" in str(e):
+                logs["init"] = "Init container is being created..."
+            elif e.status == 400:
+                logs["init"] = "Init container has not started yet"
+            else:
+                logs["init"] = f"Could not get init container logs: {str(e)}"
         except Exception as e:
             logs["init"] = f"Could not get init container logs: {str(e)}"
 
@@ -385,6 +411,13 @@ async def get_job_logs(job_name: str):
                 container="viral-usher-worker"
             )
             logs["main"] = main_logs
+        except client.exceptions.ApiException as e:
+            if e.status == 400 and "ContainerCreating" in str(e):
+                logs["main"] = "Main container is being created..."
+            elif e.status == 400:
+                logs["main"] = "Main container has not started yet (init container may still be running)"
+            else:
+                logs["main"] = f"Could not get main container logs: {str(e)}"
         except Exception as e:
             logs["main"] = f"Could not get main container logs: {str(e)}"
 

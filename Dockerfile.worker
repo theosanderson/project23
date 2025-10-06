@@ -1,5 +1,5 @@
-# Dockerfile for viral_usher worker (ARM64 compatible)
-# Based on viral_usher/Dockerfile but adapted for Apple Silicon
+# Dockerfile for viral_usher worker (x64 compatible)
+# Based on viral_usher/Dockerfile but adapted for x86_64 architecture
 
 FROM python:3.12 AS build
 
@@ -19,16 +19,16 @@ WORKDIR /app
 COPY viral_usher/pyproject.toml .
 COPY viral_usher/viral_usher viral_usher
 
-# Download ARM64 binaries for nextclade and datasets (using musl for better compatibility)
+# Download x86_64 binaries for nextclade and datasets (using musl for better compatibility)
 RUN mkdir bin && cd bin \
-    && wget -O nextclade https://github.com/nextstrain/nextclade/releases/latest/download/nextclade-aarch64-unknown-linux-musl \
-    && wget -O nextclade_to_maple.zip https://github.com/AngieHinrichs/nextclade_to_maple/releases/latest/download/nextclade_to_maple-aarch64-unknown-linux-gnu.zip \
+    && wget -O nextclade https://github.com/nextstrain/nextclade/releases/latest/download/nextclade-x86_64-unknown-linux-musl \
+    && wget -O nextclade_to_maple.zip https://github.com/AngieHinrichs/nextclade_to_maple/releases/latest/download/nextclade_to_maple-x86_64-unknown-linux-gnu.zip \
     && unzip nextclade_to_maple.zip \
     && rm nextclade_to_maple.zip \
     && chmod a+x *
 
-# Install NCBI's datasets command line tool (ARM64 version)
-RUN wget -O bin/datasets 'https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/linux-arm64/datasets' \
+# Install NCBI's datasets command line tool (x86_64 version)
+RUN wget -O bin/datasets 'https://ftp.ncbi.nlm.nih.gov/pub/datasets/command-line/v2/linux-amd64/datasets' \
     && chmod a+x bin/datasets
 
 # Done with build stage; set up final image
