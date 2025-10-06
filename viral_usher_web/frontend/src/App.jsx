@@ -35,6 +35,7 @@ function App() {
   const [error, setError] = useState('');
   const [jobLogs, setJobLogs] = useState(null);
   const [pollingInterval, setPollingInterval] = useState(null);
+  const [formCollapsed, setFormCollapsed] = useState(false);
 
   // API base URL
   const API_BASE = '/api';
@@ -189,6 +190,7 @@ function App() {
       // Start polling for job logs if a job was created
       if (data.job_info && data.job_info.success && data.job_info.job_name) {
         startJobLogPolling(data.job_info.job_name);
+        setFormCollapsed(true); // Collapse the form after launching
       }
     } catch (err) {
       setError(err.message);
@@ -243,6 +245,24 @@ function App() {
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Viral Usher Tree Builder</h1>
           <p className="text-gray-600 mb-8">Build viral phylogenetic trees from sequence data</p>
 
+          {/* Edit Parameters Button (shown when form is collapsed) */}
+          {formCollapsed && (
+            <div className="mb-6">
+              <button
+                onClick={() => setFormCollapsed(false)}
+                className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition font-medium flex items-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                Edit Parameters
+              </button>
+            </div>
+          )}
+
+          {/* Tree Building Form (collapsible) */}
+          {!formCollapsed && (
+            <>
           {/* Step 1: Species Search */}
           <div className="mb-8">
             <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">1. Select Virus Species</h2>
@@ -542,6 +562,8 @@ function App() {
               >
                 {loading ? 'Launching...' : 'Launch Analysis'}
               </button>
+            </>
+          )}
             </>
           )}
 
