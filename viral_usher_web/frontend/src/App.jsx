@@ -274,7 +274,7 @@ function App() {
                   value={speciesSearch}
                   onChange={(e) => setSpeciesSearch(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && searchSpecies()}
-                  placeholder="e.g., Zika virus, SARS-CoV-2, Influenza A"
+                  placeholder="e.g., Zika virus"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                 />
                 <button
