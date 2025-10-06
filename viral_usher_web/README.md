@@ -12,6 +12,30 @@ docker-compose up
 
 Then open http://localhost:8000 in your browser.
 
+### S3 Configuration (Optional)
+
+To enable S3 uploads for config files and FASTA sequences, set these environment variables:
+
+```bash
+export S3_BUCKET=your-bucket-name
+export S3_ENDPOINT_URL=https://s3.example.com  # Optional, for non-AWS S3-compatible storage
+export S3_REGION=us-east-1
+export S3_ACCESS_KEY_ID=your-access-key
+export S3_SECRET_ACCESS_KEY=your-secret-key
+
+docker-compose up
+```
+
+Or create a `.env` file:
+
+```env
+S3_BUCKET=your-bucket-name
+S3_ENDPOINT_URL=https://s3.example.com
+S3_REGION=us-east-1
+S3_ACCESS_KEY_ID=your-access-key
+S3_SECRET_ACCESS_KEY=your-secret-key
+```
+
 ## Development Setup
 
 ### Backend

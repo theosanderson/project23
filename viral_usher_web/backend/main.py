@@ -1,14 +1,38 @@
 """FastAPI backend for viral_usher web interface"""
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import os
+import boto3
+from botocore.exceptions import ClientError
+import uuid
+from datetime import datetime
 
 from viral_usher import ncbi_helper, nextclade_helper, config
+
+# S3 Configuration from environment variables
+S3_BUCKET = os.getenv('S3_BUCKET', '')
+S3_ENDPOINT_URL = os.getenv('S3_ENDPOINT_URL', '')  # e.g., https://s3.example.com
+S3_REGION = os.getenv('S3_REGION', 'us-east-1')
+S3_ACCESS_KEY_ID = os.getenv('S3_ACCESS_KEY_ID', '')
+S3_SECRET_ACCESS_KEY = os.getenv('S3_SECRET_ACCESS_KEY', '')
+
+# Initialize S3 client if configured
+s3_client = None
+if S3_BUCKET and S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY:
+    s3_config = {
+        'region_name': S3_REGION,
+        'aws_access_key_id': S3_ACCESS_KEY_ID,
+        'aws_secret_access_key': S3_SECRET_ACCESS_KEY
+    }
+    if S3_ENDPOINT_URL:
+        s3_config['endpoint_url'] = S3_ENDPOINT_URL
+
+    s3_client = boto3.client('s3', **s3_config)
 
 app = FastAPI(title="Viral Usher Web API")
 
@@ -156,46 +180,102 @@ async def get_nextclade_datasets(species: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/generate-config", response_model=ConfigResponse)
-async def generate_config(request: ConfigRequest):
-    """Generate and save a viral_usher config file"""
+def upload_to_s3(file_content: bytes, filename: str, content_type: str = 'text/plain') -> str:
+    """Upload file to S3 and return the S3 key"""
+    if not s3_client:
+        raise HTTPException(status_code=500, detail="S3 not configured")
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    unique_id = str(uuid.uuid4())[:8]
+    s3_key = f"uploads/{timestamp}_{unique_id}_{filename}"
+
+    try:
+        s3_client.put_object(
+            Bucket=S3_BUCKET,
+            Key=s3_key,
+            Body=file_content,
+            ContentType=content_type
+        )
+        return s3_key
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=f"S3 upload failed: {str(e)}")
+
+
+@app.post("/api/generate-config")
+async def generate_config(
+    refseq_acc: str = Form(""),
+    refseq_assembly: str = Form(""),
+    ref_fasta: str = Form(""),
+    ref_gbff: str = Form(""),
+    species: str = Form(...),
+    taxonomy_id: str = Form(...),
+    nextclade_dataset: str = Form(""),
+    nextclade_clade_columns: str = Form(""),
+    min_length_proportion: str = Form(...),
+    max_N_proportion: str = Form(...),
+    max_parsimony: str = Form(...),
+    max_branch_length: str = Form(...),
+    workdir: str = Form(...),
+    fasta_text: str = Form(""),
+    fasta_file: Optional[UploadFile] = File(None)
+):
+    """Generate and save a viral_usher config file, optionally with FASTA upload to S3"""
     try:
         import importlib.metadata
 
         viral_usher_version = importlib.metadata.version('viral_usher')
 
+        # Handle FASTA upload to S3
+        fasta_s3_key = None
+        if fasta_file:
+            fasta_content = await fasta_file.read()
+            fasta_s3_key = upload_to_s3(fasta_content, fasta_file.filename or "sequences.fasta", "text/plain")
+        elif fasta_text:
+            fasta_content = fasta_text.encode('utf-8')
+            fasta_s3_key = upload_to_s3(fasta_content, "sequences.fasta", "text/plain")
+
         config_contents = {
             "viral_usher_version": viral_usher_version,
-            "refseq_acc": request.refseq_acc,
-            "refseq_assembly": request.refseq_assembly,
-            "ref_fasta": request.ref_fasta,
-            "ref_gbff": request.ref_gbff,
-            "species": request.species,
-            "taxonomy_id": request.taxonomy_id,
-            "nextclade_dataset": request.nextclade_dataset or "",
-            "nextclade_clade_columns": request.nextclade_clade_columns or "",
-            "min_length_proportion": request.min_length_proportion,
-            "max_N_proportion": request.max_N_proportion,
-            "max_parsimony": request.max_parsimony,
-            "max_branch_length": request.max_branch_length,
-            "extra_fasta": request.extra_fasta or "",
-            "workdir": os.path.abspath(request.workdir),
+            "refseq_acc": refseq_acc,
+            "refseq_assembly": refseq_assembly,
+            "ref_fasta": ref_fasta,
+            "ref_gbff": ref_gbff,
+            "species": species,
+            "taxonomy_id": taxonomy_id,
+            "nextclade_dataset": nextclade_dataset or "",
+            "nextclade_clade_columns": nextclade_clade_columns or "",
+            "min_length_proportion": min_length_proportion,
+            "max_N_proportion": max_N_proportion,
+            "max_parsimony": max_parsimony,
+            "max_branch_length": max_branch_length,
+            "extra_fasta": fasta_s3_key or "",
+            "workdir": os.path.abspath(workdir),
         }
 
         # Create workdir if it doesn't exist
-        os.makedirs(request.workdir, exist_ok=True)
+        os.makedirs(workdir, exist_ok=True)
 
         # Generate config filename
-        refseq_part = f"_{request.refseq_acc}" if request.refseq_acc else ""
-        config_path = f"{request.workdir}/viral_usher_config{refseq_part}_{request.taxonomy_id}.toml"
+        refseq_part = f"_{refseq_acc}" if refseq_acc else ""
+        config_filename = f"viral_usher_config{refseq_part}_{taxonomy_id}.toml"
+        config_path = f"{workdir}/{config_filename}"
 
-        # Write config
+        # Write config locally
         config.write_config(config_contents, config_path)
 
-        return ConfigResponse(
-            config_path=config_path,
-            config_contents=config_contents
-        )
+        # Upload config to S3
+        config_s3_key = None
+        if s3_client:
+            with open(config_path, 'rb') as f:
+                config_s3_key = upload_to_s3(f.read(), config_filename, "application/toml")
+
+        return {
+            "config_path": config_path,
+            "config_s3_key": config_s3_key,
+            "fasta_s3_key": fasta_s3_key,
+            "config_contents": config_contents,
+            "s3_bucket": S3_BUCKET if s3_client else None
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

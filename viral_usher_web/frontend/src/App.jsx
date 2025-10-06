@@ -16,6 +16,11 @@ function App() {
   const [nextcladeDatasets, setNextcladeDatasets] = useState([]);
   const [selectedNextclade, setSelectedNextclade] = useState(null);
 
+  // FASTA upload state
+  const [fastaText, setFastaText] = useState('');
+  const [fastaFile, setFastaFile] = useState(null);
+  const [fastaInputMethod, setFastaInputMethod] = useState('text'); // 'text' or 'file'
+
   // Configuration parameters
   const [minLengthProportion, setMinLengthProportion] = useState('0.95');
   const [maxNProportion, setMaxNProportion] = useState('0.05');
@@ -148,24 +153,29 @@ function App() {
     setSuccess(null);
 
     try {
-      const configData = {
-        refseq_acc: selectedRefseq?.accession || '',
-        refseq_assembly: assemblyId,
-        species: selectedTaxonomy?.sci_name || '',
-        taxonomy_id: selectedTaxonomy?.tax_id || '',
-        nextclade_dataset: selectedNextclade?.path || '',
-        nextclade_clade_columns: selectedNextclade?.clade_columns || '',
-        min_length_proportion: minLengthProportion,
-        max_N_proportion: maxNProportion,
-        max_parsimony: maxParsimony,
-        max_branch_length: maxBranchLength,
-        workdir: workdir
-      };
+      const formData = new FormData();
+      formData.append('refseq_acc', selectedRefseq?.accession || '');
+      formData.append('refseq_assembly', assemblyId);
+      formData.append('species', selectedTaxonomy?.sci_name || '');
+      formData.append('taxonomy_id', selectedTaxonomy?.tax_id || '');
+      formData.append('nextclade_dataset', selectedNextclade?.path || '');
+      formData.append('nextclade_clade_columns', selectedNextclade?.clade_columns || '');
+      formData.append('min_length_proportion', minLengthProportion);
+      formData.append('max_N_proportion', maxNProportion);
+      formData.append('max_parsimony', maxParsimony);
+      formData.append('max_branch_length', maxBranchLength);
+      formData.append('workdir', workdir);
+
+      // Add FASTA data
+      if (fastaInputMethod === 'file' && fastaFile) {
+        formData.append('fasta_file', fastaFile);
+      } else if (fastaInputMethod === 'text' && fastaText) {
+        formData.append('fasta_text', fastaText);
+      }
 
       const response = await fetch(`${API_BASE}/generate-config`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(configData)
+        body: formData
       });
 
       if (!response.ok) throw new Error('Failed to generate config');
@@ -352,7 +362,69 @@ function App() {
               </div>
 
               <div className="mb-8">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">4. Filtering Parameters</h2>
+                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">4. FASTA Sequences (Optional)</h2>
+                <div className="space-y-4">
+                  <div className="flex gap-4 mb-4">
+                    <button
+                      onClick={() => setFastaInputMethod('text')}
+                      className={`px-4 py-2 rounded-lg transition ${
+                        fastaInputMethod === 'text'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      Paste Text
+                    </button>
+                    <button
+                      onClick={() => setFastaInputMethod('file')}
+                      className={`px-4 py-2 rounded-lg transition ${
+                        fastaInputMethod === 'file'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      Upload File
+                    </button>
+                  </div>
+
+                  {fastaInputMethod === 'text' ? (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Paste FASTA sequences
+                        <div className="text-xs text-gray-500 font-normal mt-1">Paste your FASTA formatted sequences here</div>
+                      </label>
+                      <textarea
+                        value={fastaText}
+                        onChange={(e) => setFastaText(e.target.value)}
+                        rows={8}
+                        placeholder=">sequence1&#10;ATCGATCG..."
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-mono text-sm"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Upload FASTA file
+                        <div className="text-xs text-gray-500 font-normal mt-1">Select a FASTA file from your computer</div>
+                      </label>
+                      <input
+                        type="file"
+                        accept=".fasta,.fa,.fna,.txt"
+                        onChange={(e) => setFastaFile(e.target.files?.[0] || null)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                      />
+                      {fastaFile && (
+                        <div className="mt-2 text-sm text-gray-600">
+                          Selected: {fastaFile.name}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mb-8">
+                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">5. Filtering Parameters</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -417,7 +489,7 @@ function App() {
               </div>
 
               <div className="mb-8">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">5. Working Directory</h2>
+                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">6. Working Directory</h2>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Directory for data and output files
@@ -451,14 +523,26 @@ function App() {
           {success && (
             <div className="mt-6 bg-green-50 border-2 border-green-200 rounded-lg p-6">
               <h3 className="text-xl font-semibold text-green-800 mb-4">Configuration Created Successfully!</h3>
-              <p className="mb-4">
-                <strong className="text-gray-900">Config file:</strong> <code className="bg-white px-2 py-1 rounded text-sm text-gray-800 border border-gray-200">{success.config_path}</code>
-              </p>
-              <p className="mb-3">
-                <strong className="text-gray-900">Next step:</strong> Run the following command to build your tree:
-              </p>
-              <div className="bg-white p-4 rounded-lg border border-gray-200 font-mono text-sm text-gray-800">
-                viral_usher build --config {success.config_path}
+              <div className="space-y-3">
+                <p>
+                  <strong className="text-gray-900">Config file:</strong> <code className="bg-white px-2 py-1 rounded text-sm text-gray-800 border border-gray-200">{success.config_path}</code>
+                </p>
+                {success.config_s3_key && (
+                  <p>
+                    <strong className="text-gray-900">S3 Config:</strong> <code className="bg-white px-2 py-1 rounded text-sm text-gray-800 border border-gray-200">s3://{success.s3_bucket}/{success.config_s3_key}</code>
+                  </p>
+                )}
+                {success.fasta_s3_key && (
+                  <p>
+                    <strong className="text-gray-900">S3 FASTA:</strong> <code className="bg-white px-2 py-1 rounded text-sm text-gray-800 border border-gray-200">s3://{success.s3_bucket}/{success.fasta_s3_key}</code>
+                  </p>
+                )}
+                <p className="mt-4">
+                  <strong className="text-gray-900">Next step:</strong> Run the following command to build your tree:
+                </p>
+                <div className="bg-white p-4 rounded-lg border border-gray-200 font-mono text-sm text-gray-800">
+                  viral_usher build --config {success.config_path}
+                </div>
               </div>
             </div>
           )}
