@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import os
+import sys
 import boto3
 from botocore.exceptions import ClientError
 import uuid
@@ -24,8 +25,10 @@ S3_SECRET_ACCESS_KEY = os.getenv('S3_SECRET_ACCESS_KEY', '')
 
 # Kubernetes Configuration
 K8S_NAMESPACE = os.getenv('K8S_NAMESPACE', 'default')
-K8S_JOB_IMAGE = os.getenv('K8S_JOB_IMAGE')  # Set via Helm values
+K8S_JOB_IMAGE = os.getenv('K8S_JOB_IMAGE')  # Set via Helm values (viral_usher main image)
 K8S_JOB_IMAGE_PULL_POLICY = os.getenv('K8S_JOB_IMAGE_PULL_POLICY', 'IfNotPresent')
+K8S_UPLOAD_IMAGE = os.getenv('K8S_UPLOAD_IMAGE', 'python:3.12-slim')  # Upload sidecar image
+K8S_UPLOAD_IMAGE_PULL_POLICY = os.getenv('K8S_UPLOAD_IMAGE_PULL_POLICY', 'IfNotPresent')
 K8S_S3_SECRET_NAME = os.getenv('K8S_S3_SECRET_NAME', '')  # Optional: use k8s secret instead of env vars
 
 # Initialize S3 client if configured
@@ -208,9 +211,50 @@ def upload_to_s3(file_content: bytes, filename: str, content_type: str = 'text/p
         raise HTTPException(status_code=500, detail=f"S3 upload failed: {str(e)}")
 
 
+def ensure_upload_script_configmap():
+    """Create or update the ConfigMap containing the upload sidecar script"""
+    try:
+        # Load kubernetes config
+        try:
+            k8s_config.load_incluster_config()
+        except k8s_config.ConfigException:
+            k8s_config.load_kube_config()
+
+        core_v1 = client.CoreV1Api()
+
+        # Read the upload script
+        script_path = os.path.join(os.path.dirname(__file__), "../upload_sidecar.py")
+        with open(script_path, 'r') as f:
+            script_content = f.read()
+
+        # Create ConfigMap
+        configmap = client.V1ConfigMap(
+            metadata=client.V1ObjectMeta(name="upload-sidecar-script"),
+            data={"upload_sidecar.py": script_content}
+        )
+
+        # Try to create or update
+        try:
+            core_v1.create_namespaced_config_map(namespace=K8S_NAMESPACE, body=configmap)
+        except client.exceptions.ApiException as e:
+            if e.status == 409:  # Already exists, update it
+                core_v1.replace_namespaced_config_map(
+                    name="upload-sidecar-script",
+                    namespace=K8S_NAMESPACE,
+                    body=configmap
+                )
+            else:
+                raise
+    except Exception as e:
+        print(f"Warning: Failed to create/update upload script ConfigMap: {e}", file=sys.stderr)
+
+
 def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
     """Start a Kubernetes job to process the config file"""
     try:
+        # Ensure the upload script ConfigMap exists
+        ensure_upload_script_configmap()
+
         # Load kubernetes config (try in-cluster first, fallback to local kubeconfig)
         try:
             k8s_config.load_incluster_config()
@@ -283,20 +327,46 @@ def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
                                 ]
                             )
                         ],
-                        # Main container to run viral_usher
+                        # Main container to run viral_usher + sidecar for upload
                         containers=[
+                            # Main container: viral_usher
                             client.V1Container(
-                                name="viral-usher-worker",
+                                name="viral-usher",
                                 image=K8S_JOB_IMAGE,
                                 image_pull_policy=K8S_JOB_IMAGE_PULL_POLICY,
-                                command=["viral_usher_build_wrapper"],
-                                args=["--config", "/workspace/config.toml"],
-                                env=env_vars,
+                                command=["/bin/sh", "-c"],
+                                args=[
+                                    # Run viral_usher_build and create completion marker
+                                    "cd /workspace && "
+                                    "viral_usher_build --config /workspace/config.toml && "
+                                    "touch /workspace/.job_complete"
+                                ],
+                                working_dir="/workspace",
+                                volume_mounts=[
+                                    client.V1VolumeMount(
+                                        name="workspace",
+                                        mount_path="/workspace"
+                                    )
+                                ]
+                            ),
+                            # Sidecar container: S3 upload
+                            client.V1Container(
+                                name="upload-sidecar",
+                                image=K8S_UPLOAD_IMAGE,
+                                image_pull_policy=K8S_UPLOAD_IMAGE_PULL_POLICY,
+                                command=["python3", "/scripts/upload_sidecar.py"],
+                                env=env_vars + [
+                                    client.V1EnvVar(name="WORKDIR", value="/workspace")
+                                ],
                                 env_from=env_from if env_from else None,
                                 volume_mounts=[
                                     client.V1VolumeMount(
                                         name="workspace",
                                         mount_path="/workspace"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="upload-script",
+                                        mount_path="/scripts"
                                     )
                                 ]
                             )
@@ -306,6 +376,13 @@ def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
                             client.V1Volume(
                                 name="workspace",
                                 empty_dir=client.V1EmptyDirVolumeSource()
+                            ),
+                            client.V1Volume(
+                                name="upload-script",
+                                config_map=client.V1ConfigMapVolumeSource(
+                                    name="upload-sidecar-script",
+                                    default_mode=0o755
+                                )
                             )
                         ]
                     )
@@ -412,12 +489,12 @@ async def get_job_logs(job_name: str, request: Request):
         except Exception as e:
             logs["init"] = f"Could not get init container logs: {str(e)}"
 
-        # Get main container logs (viral-usher-worker)
+        # Get main container logs (viral-usher)
         try:
             main_logs = core_v1.read_namespaced_pod_log(
                 name=pod_name,
                 namespace=K8S_NAMESPACE,
-                container="viral-usher-worker"
+                container="viral-usher"
             )
             logs["main"] = main_logs
         except client.exceptions.ApiException as e:
@@ -430,9 +507,33 @@ async def get_job_logs(job_name: str, request: Request):
         except Exception as e:
             logs["main"] = f"Could not get main container logs: {str(e)}"
 
-        # Parse S3 output from logs if present
+        # Get upload sidecar logs
+        try:
+            upload_logs = core_v1.read_namespaced_pod_log(
+                name=pod_name,
+                namespace=K8S_NAMESPACE,
+                container="upload-sidecar"
+            )
+            logs["upload"] = upload_logs
+        except client.exceptions.ApiException as e:
+            if e.status == 400 and "ContainerCreating" in str(e):
+                logs["upload"] = "Upload sidecar is being created..."
+            elif e.status == 400:
+                logs["upload"] = "Upload sidecar has not started yet"
+            else:
+                logs["upload"] = f"Could not get upload sidecar logs: {str(e)}"
+        except Exception as e:
+            logs["upload"] = f"Could not get upload sidecar logs: {str(e)}"
+
+        # Parse S3 output from logs if present (check both main and upload logs)
         s3_results = None
-        if "main" in logs and isinstance(logs["main"], str):
+        log_to_check = None
+        if "upload" in logs and isinstance(logs["upload"], str):
+            log_to_check = logs["upload"]
+        elif "main" in logs and isinstance(logs["main"], str):
+            log_to_check = logs["main"]
+
+        if log_to_check:
             import re
             import json
 
@@ -443,7 +544,7 @@ async def get_job_logs(job_name: str, request: Request):
             upload_complete = False
 
             # Find all incremental file uploads
-            for match in re.finditer(r'__S3_FILE_UPLOADED__(.+?)__S3_FILE_END__', logs["main"]):
+            for match in re.finditer(r'__S3_FILE_UPLOADED__(.+?)__S3_FILE_END__', log_to_check):
                 try:
                     file_info = json.loads(match.group(1))
                     bucket = file_info["bucket"]
@@ -467,7 +568,7 @@ async def get_job_logs(job_name: str, request: Request):
                     print(f"Error parsing S3 file info: {e}", file=sys.stderr)
 
             # Check if upload is complete
-            if "__S3_UPLOAD_COMPLETE__" in logs["main"]:
+            if "__S3_UPLOAD_COMPLETE__" in log_to_check:
                 upload_complete = True
 
             # If we have files, create s3_results
@@ -482,7 +583,7 @@ async def get_job_logs(job_name: str, request: Request):
 
             # Also check for old-style batch output (for backwards compatibility)
             if not s3_results:
-                match = re.search(r'__VIRAL_USHER_S3_OUTPUT_START__\n(.*?)\n__VIRAL_USHER_S3_OUTPUT_END__', logs["main"], re.DOTALL)
+                match = re.search(r'__VIRAL_USHER_S3_OUTPUT_START__\n(.*?)\n__VIRAL_USHER_S3_OUTPUT_END__', log_to_check, re.DOTALL)
                 if match:
                     try:
                         s3_data = json.loads(match.group(1))

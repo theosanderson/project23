@@ -48,6 +48,10 @@ spec:
           value: "{{ .Values.job.image.repository }}:{{ .Values.job.image.tag }}"
         - name: K8S_JOB_IMAGE_PULL_POLICY
           value: {{ .Values.job.image.pullPolicy | quote }}
+        - name: K8S_UPLOAD_IMAGE
+          value: "{{ .Values.job.uploadImage.repository }}:{{ .Values.job.uploadImage.tag }}"
+        - name: K8S_UPLOAD_IMAGE_PULL_POLICY
+          value: {{ .Values.job.uploadImage.pullPolicy | quote }}
         - name: S3_BUCKET
           value: {{ .Values.s3.bucket | quote }}
         - name: S3_REGION

@@ -98,9 +98,14 @@ s3:
 # Kubernetes job configuration
 job:
   image:
-    repository: ghcr.io/theosanderson/project23/viral-usher-worker
+    repository: angiehinrichs/viral_usher
     tag: "latest"
     pullPolicy: Always
+  # Upload sidecar image (for S3 uploads)
+  uploadImage:
+    repository: python
+    tag: "3.12-slim"
+    pullPolicy: IfNotPresent
   # Service account for jobs (needs permissions to create jobs)
   serviceAccount:
     create: true
