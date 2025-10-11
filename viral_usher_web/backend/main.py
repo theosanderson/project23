@@ -3,7 +3,7 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from typing import List, Optional
 import os
@@ -249,7 +249,7 @@ def ensure_upload_script_configmap():
         print(f"Warning: Failed to create/update upload script ConfigMap: {e}", file=sys.stderr)
 
 
-def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
+def start_kubernetes_job(config_s3_key: str, job_name: str, no_genbank: bool = False) -> dict:
     """Start a Kubernetes job to process the config file"""
     try:
         # Ensure the upload script ConfigMap exists
@@ -288,7 +288,13 @@ def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
                 client.V1EnvVar(name="S3_SECRET_ACCESS_KEY", value=S3_SECRET_ACCESS_KEY),
             ])
 
-        # Create job with initContainer to download config from S3
+        # Build S3 URL for config file
+        if S3_ENDPOINT_URL:
+            config_url = f"{S3_ENDPOINT_URL}/{S3_BUCKET}/{config_s3_key}"
+        else:
+            config_url = f"https://s3.{S3_REGION}.amazonaws.com/{S3_BUCKET}/{config_s3_key}"
+
+        # Create job without initContainer - pass config URL directly
         job = client.V1Job(
             api_version="batch/v1",
             kind="Job",
@@ -298,35 +304,6 @@ def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
                 template=client.V1PodTemplateSpec(
                     spec=client.V1PodSpec(
                         restart_policy="Never",
-                        # InitContainer to download config from S3
-                        init_containers=[
-                            client.V1Container(
-                                name="download-config",
-                                image="amazon/aws-cli:latest",
-                                command=["/bin/sh", "-c"],
-                                args=[
-                                    # Set AWS credentials and download config
-                                    "export AWS_ACCESS_KEY_ID=$S3_ACCESS_KEY_ID && "
-                                    "export AWS_SECRET_ACCESS_KEY=$S3_SECRET_ACCESS_KEY && "
-                                    "aws --endpoint-url $S3_ENDPOINT_URL s3 cp s3://$S3_BUCKET/$CONFIG_S3_KEY /workspace/config.toml && "
-                                    # Check if config has extra_fasta and download it if present
-                                    "if grep -q \"extra_fasta = 'uploads/\" /workspace/config.toml; then "
-                                    "  FASTA_KEY=$(grep \"extra_fasta = '\" /workspace/config.toml | sed \"s/extra_fasta = '\\(.*\\)'/\\1/\"); "
-                                    "  echo \"Downloading fasta file: $FASTA_KEY\"; "
-                                    "  aws --endpoint-url $S3_ENDPOINT_URL s3 cp s3://$S3_BUCKET/$FASTA_KEY /workspace/sequences.fasta && "
-                                    "  sed -i \"s|extra_fasta = '.*'|extra_fasta = '/workspace/sequences.fasta'|\" /workspace/config.toml; "
-                                    "fi"
-                                ],
-                                env=env_vars,
-                                env_from=env_from if env_from else None,
-                                volume_mounts=[
-                                    client.V1VolumeMount(
-                                        name="workspace",
-                                        mount_path="/workspace"
-                                    )
-                                ]
-                            )
-                        ],
                         # Main container to run viral_usher + sidecar for upload
                         containers=[
                             # Main container: viral_usher
@@ -336,11 +313,13 @@ def start_kubernetes_job(config_s3_key: str, job_name: str) -> dict:
                                 image_pull_policy=K8S_JOB_IMAGE_PULL_POLICY,
                                 command=["/bin/sh", "-c"],
                                 args=[
-                                    # Run viral_usher_build and create completion marker
+                                    # Run viral_usher_build with config URL and optionally --no_genbank flag
                                     "cd /workspace && "
-                                    "viral_usher_build --config /workspace/config.toml && "
+                                    f"viral_usher_build --config {config_url}{' --no_genbank' if no_genbank else ''} && "
                                     "touch /workspace/.job_complete"
                                 ],
+                                env=env_vars,
+                                env_from=env_from if env_from else None,
                                 working_dir="/workspace",
                                 volume_mounts=[
                                     client.V1VolumeMount(
@@ -471,24 +450,6 @@ async def get_job_logs(job_name: str, request: Request):
                     if condition.status == "False":
                         logs["info"] += f" {condition.reason}: {condition.message}"
 
-        # Get init container logs (download-config)
-        try:
-            init_logs = core_v1.read_namespaced_pod_log(
-                name=pod_name,
-                namespace=K8S_NAMESPACE,
-                container="download-config"
-            )
-            logs["init"] = init_logs
-        except client.exceptions.ApiException as e:
-            if e.status == 400 and "ContainerCreating" in str(e):
-                logs["init"] = "Init container is being created..."
-            elif e.status == 400:
-                logs["init"] = "Init container has not started yet"
-            else:
-                logs["init"] = f"Could not get init container logs: {str(e)}"
-        except Exception as e:
-            logs["init"] = f"Could not get init container logs: {str(e)}"
-
         # Get main container logs (viral-usher)
         try:
             main_logs = core_v1.read_namespaced_pod_log(
@@ -501,7 +462,7 @@ async def get_job_logs(job_name: str, request: Request):
             if e.status == 400 and "ContainerCreating" in str(e):
                 logs["main"] = "Main container is being created..."
             elif e.status == 400:
-                logs["main"] = "Main container has not started yet (init container may still be running)"
+                logs["main"] = "Main container has not started yet"
             else:
                 logs["main"] = f"Could not get main container logs: {str(e)}"
         except Exception as e:
@@ -550,8 +511,8 @@ async def get_job_logs(job_name: str, request: Request):
                     bucket = file_info["bucket"]
                     prefix = file_info["prefix"]
 
-                    # Use S3 subdomain URL
-                    url = f"https://s3-usher.api.taxonium.org/{bucket}/{file_info['s3_key']}"
+                    # Use hardcoded GitHub Codespaces URL for now
+                    url = f"https://bookish-space-happiness-x56rxw7x77q2p5rq-8081.app.github.dev/api/s3-proxy/{bucket}/{file_info['s3_key']}"
 
                     file_entry = {
                         "filename": file_info["filename"],
@@ -593,7 +554,8 @@ async def get_job_logs(job_name: str, request: Request):
                         # Create download URLs for each file
                         file_urls = []
                         for file_key in s3_data["uploaded_files"]:
-                            url = f"https://s3-usher.api.taxonium.org/{bucket}/{file_key}"
+                            # Use hardcoded GitHub Codespaces URL for now
+                            url = f"https://bookish-space-happiness-x56rxw7x77q2p5rq-8081.app.github.dev/api/s3-proxy/{bucket}/{file_key}"
                             filename = file_key.replace(f"{prefix}/", "")
                             file_entry = {
                                 "filename": filename,
@@ -632,6 +594,7 @@ async def get_job_logs(job_name: str, request: Request):
 
 @app.post("/api/generate-config")
 async def generate_config(
+    no_genbank: str = Form("false"),
     refseq_acc: str = Form(""),
     refseq_assembly: str = Form(""),
     ref_fasta: str = Form(""),
@@ -646,7 +609,13 @@ async def generate_config(
     max_branch_length: str = Form(...),
     workdir: str = Form(...),
     fasta_text: str = Form(""),
-    fasta_file: Optional[UploadFile] = File(None)
+    fasta_file: Optional[UploadFile] = File(None),
+    ref_fasta_file: Optional[UploadFile] = File(None),
+    ref_gbff_file: Optional[UploadFile] = File(None),
+    ref_fasta_text: str = Form(""),
+    ref_gbff_text: str = Form(""),
+    metadata_file: Optional[UploadFile] = File(None),
+    metadata_date_column: str = Form("")
 ):
     """Generate and save a viral_usher config file, optionally with FASTA upload to S3"""
     try:
@@ -654,7 +623,28 @@ async def generate_config(
 
         viral_usher_version = importlib.metadata.version('viral_usher')
 
-        # Handle FASTA upload to S3
+        # Parse no_genbank flag
+        no_genbank_mode = no_genbank.lower() == 'true'
+
+        # Handle reference file uploads or text (for no_genbank mode)
+        ref_fasta_s3_key = None
+        ref_gbff_s3_key = None
+        if no_genbank_mode:
+            if ref_fasta_file:
+                ref_fasta_content = await ref_fasta_file.read()
+                ref_fasta_s3_key = upload_to_s3(ref_fasta_content, ref_fasta_file.filename or "ref.fasta", "text/plain")
+            elif ref_fasta_text:
+                ref_fasta_content = ref_fasta_text.encode('utf-8')
+                ref_fasta_s3_key = upload_to_s3(ref_fasta_content, "ref.fasta", "text/plain")
+
+            if ref_gbff_file:
+                ref_gbff_content = await ref_gbff_file.read()
+                ref_gbff_s3_key = upload_to_s3(ref_gbff_content, ref_gbff_file.filename or "ref.gbff", "text/plain")
+            elif ref_gbff_text:
+                ref_gbff_content = ref_gbff_text.encode('utf-8')
+                ref_gbff_s3_key = upload_to_s3(ref_gbff_content, "ref.gbff", "text/plain")
+
+        # Handle FASTA upload to S3 (sequences to place)
         fasta_s3_key = None
         if fasta_file:
             fasta_content = await fasta_file.read()
@@ -663,12 +653,15 @@ async def generate_config(
             fasta_content = fasta_text.encode('utf-8')
             fasta_s3_key = upload_to_s3(fasta_content, "sequences.fasta", "text/plain")
 
+        # Handle metadata file upload
+        metadata_s3_key = None
+        if metadata_file:
+            metadata_content = await metadata_file.read()
+            metadata_s3_key = upload_to_s3(metadata_content, metadata_file.filename or "metadata.tsv", "text/tab-separated-values")
+
+        # Build config contents based on mode
         config_contents = {
             "viral_usher_version": viral_usher_version,
-            "refseq_acc": refseq_acc,
-            "refseq_assembly": refseq_assembly,
-            "ref_fasta": ref_fasta,
-            "ref_gbff": ref_gbff,
             "species": species,
             "taxonomy_id": taxonomy_id,
             "nextclade_dataset": nextclade_dataset or "",
@@ -677,9 +670,48 @@ async def generate_config(
             "max_N_proportion": max_N_proportion,
             "max_parsimony": max_parsimony,
             "max_branch_length": max_branch_length,
-            "extra_fasta": fasta_s3_key or "",
             "workdir": os.path.abspath(workdir),
         }
+
+        if no_genbank_mode:
+            # No GenBank mode: use uploaded reference files
+            if ref_fasta_s3_key:
+                # Convert S3 key to URL for config
+                if S3_ENDPOINT_URL:
+                    config_contents["ref_fasta"] = f"{S3_ENDPOINT_URL}/{S3_BUCKET}/{ref_fasta_s3_key}"
+                else:
+                    config_contents["ref_fasta"] = f"https://s3.{S3_REGION}.amazonaws.com/{S3_BUCKET}/{ref_fasta_s3_key}"
+            if ref_gbff_s3_key:
+                if S3_ENDPOINT_URL:
+                    config_contents["ref_gbff"] = f"{S3_ENDPOINT_URL}/{S3_BUCKET}/{ref_gbff_s3_key}"
+                else:
+                    config_contents["ref_gbff"] = f"https://s3.{S3_REGION}.amazonaws.com/{S3_BUCKET}/{ref_gbff_s3_key}"
+            config_contents["refseq_acc"] = ""
+            config_contents["refseq_assembly"] = ""
+        else:
+            # GenBank mode: use RefSeq accession
+            config_contents["refseq_acc"] = refseq_acc
+            config_contents["refseq_assembly"] = refseq_assembly
+            config_contents["ref_fasta"] = ref_fasta
+            config_contents["ref_gbff"] = ref_gbff
+
+        # Add extra fasta (sequences to place)
+        if fasta_s3_key:
+            if S3_ENDPOINT_URL:
+                config_contents["extra_fasta"] = f"{S3_ENDPOINT_URL}/{S3_BUCKET}/{fasta_s3_key}"
+            else:
+                config_contents["extra_fasta"] = f"https://s3.{S3_REGION}.amazonaws.com/{S3_BUCKET}/{fasta_s3_key}"
+        else:
+            config_contents["extra_fasta"] = ""
+
+        # Add metadata if provided
+        if metadata_s3_key:
+            if S3_ENDPOINT_URL:
+                config_contents["extra_metadata"] = f"{S3_ENDPOINT_URL}/{S3_BUCKET}/{metadata_s3_key}"
+            else:
+                config_contents["extra_metadata"] = f"https://s3.{S3_REGION}.amazonaws.com/{S3_BUCKET}/{metadata_s3_key}"
+            if metadata_date_column:
+                config_contents["extra_metadata_date_column"] = metadata_date_column
 
         # Create workdir if it doesn't exist
         os.makedirs(workdir, exist_ok=True)
@@ -702,7 +734,7 @@ async def generate_config(
             # Start Kubernetes job to process the config
             job_name = f"viral-usher-{taxonomy_id}-{uuid.uuid4().hex[:8]}"
             try:
-                job_info = start_kubernetes_job(config_s3_key, job_name)
+                job_info = start_kubernetes_job(config_s3_key, job_name, no_genbank_mode)
             except HTTPException as e:
                 # Job creation failed, but config was still created
                 job_info = {"success": False, "error": str(e.detail)}
@@ -715,6 +747,39 @@ async def generate_config(
             "s3_bucket": S3_BUCKET if s3_client else None,
             "job_info": job_info
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/s3-proxy/{bucket}/{s3_key:path}")
+async def s3_proxy(bucket: str, s3_key: str):
+    """Proxy S3 downloads through the backend"""
+    if not s3_client:
+        raise HTTPException(status_code=500, detail="S3 not configured")
+
+    try:
+        # Get the file from S3
+        response = s3_client.get_object(Bucket=bucket, Key=s3_key)
+
+        # Stream the file content
+        file_content = response['Body'].read()
+
+        # Determine content type
+        content_type = response.get('ContentType', 'application/octet-stream')
+
+        # Return the file
+        return Response(
+            content=file_content,
+            media_type=content_type,
+            headers={
+                'Content-Disposition': f'attachment; filename="{s3_key.split("/")[-1]}"'
+            }
+        )
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'NoSuchKey':
+            raise HTTPException(status_code=404, detail="File not found")
+        else:
+            raise HTTPException(status_code=500, detail=f"S3 error: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

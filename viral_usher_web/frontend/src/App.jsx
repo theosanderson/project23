@@ -1,10 +1,13 @@
 import { useState } from 'react';
 
 function App() {
+  // Mode selection: 'genbank' or 'no_genbank'
+  const [mode, setMode] = useState(null);
+
   // Step tracking
   const [currentStep, setCurrentStep] = useState(1);
 
-  // Search and selection state
+  // Search and selection state (GenBank mode)
   const [speciesSearch, setSpeciesSearch] = useState('');
   const [taxonomyResults, setTaxonomyResults] = useState([]);
   const [selectedTaxonomy, setSelectedTaxonomy] = useState(null);
@@ -16,10 +19,24 @@ function App() {
   const [nextcladeDatasets, setNextcladeDatasets] = useState([]);
   const [selectedNextclade, setSelectedNextclade] = useState(null);
 
-  // FASTA upload state
+  // Reference file uploads (for no_genbank mode)
+  const [refFastaFile, setRefFastaFile] = useState(null);
+  const [refGbffFile, setRefGbffFile] = useState(null);
+  const [refFastaText, setRefFastaText] = useState('');
+  const [refGbffText, setRefGbffText] = useState('');
+  const [refFastaInputMethod, setRefFastaInputMethod] = useState('file'); // 'file' or 'text'
+  const [refGbffInputMethod, setRefGbffInputMethod] = useState('file'); // 'file' or 'text'
+  const [manualTaxonomyId, setManualTaxonomyId] = useState('');
+  const [manualSpeciesName, setManualSpeciesName] = useState('');
+
+  // FASTA upload state (sequences to place)
   const [fastaText, setFastaText] = useState('');
   const [fastaFile, setFastaFile] = useState(null);
   const [fastaInputMethod, setFastaInputMethod] = useState('text'); // 'text' or 'file'
+
+  // Metadata upload state
+  const [metadataFile, setMetadataFile] = useState(null);
+  const [metadataDateColumn, setMetadataDateColumn] = useState('');
 
   // Configuration parameters
   const [minLengthProportion, setMinLengthProportion] = useState('0.8');
@@ -40,7 +57,7 @@ function App() {
   // API base URL
   const API_BASE = '/api';
 
-  // Search for species
+  // Search for species (GenBank mode)
   const searchSpecies = async () => {
     if (!speciesSearch.trim()) return;
 
@@ -78,7 +95,7 @@ function App() {
     }
   };
 
-  // Select taxonomy and fetch RefSeqs
+  // Select taxonomy and fetch RefSeqs (GenBank mode)
   const selectTaxonomy = async (taxonomy) => {
     setSelectedTaxonomy(taxonomy);
     setLoadingRefSeqs(true);
@@ -103,7 +120,7 @@ function App() {
     }
   };
 
-  // Select RefSeq and fetch assembly
+  // Select RefSeq and fetch assembly (GenBank mode)
   const selectRefseq = async (refseq) => {
     setSelectedRefseq(refseq);
     setLoadingAssembly(true);
@@ -128,13 +145,14 @@ function App() {
   };
 
   // Search Nextclade datasets
-  const searchNextclade = async () => {
-    if (!selectedTaxonomy) return;
+  const searchNextclade = async (speciesNameOverride = null) => {
+    const speciesName = speciesNameOverride || (mode === 'genbank' ? selectedTaxonomy?.sci_name : manualSpeciesName);
+    if (!speciesName) return;
 
     setLoading(true);
     try {
       const response = await fetch(
-        `${API_BASE}/nextclade-datasets?species=${encodeURIComponent(selectedTaxonomy.sci_name)}`
+        `${API_BASE}/nextclade-datasets?species=${encodeURIComponent(speciesName)}`
       );
       if (!response.ok) throw new Error('Failed to fetch Nextclade datasets');
 
@@ -148,6 +166,61 @@ function App() {
     }
   };
 
+  // Load example data
+  const loadExampleData = () => {
+    setManualTaxonomyId('12345');
+    setManualSpeciesName('Test virus');
+
+    // Example reference FASTA
+    setRefFastaText(`>reference
+GACAACTCAACCACAAGGTAAGTGCAAATGAACTTATAACAGTATAATCGTGCTAGTGGA
+TCCCAAAATTCCACGTGGTGATATGGTCCTATAGCGTACGCCTAGTAGACTTGGGTGAAT
+GACACGCCGATACTAAGTGGGAATAGTCCGTAGCTCCCTGTGGCCAGTGAGGCTGCGTAG
+GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
+    setRefFastaInputMethod('text');
+
+    // Example reference GenBank
+    setRefGbffText(`LOCUS       reference                240 bp    DNA     linear   VRL 10-OCT-2025
+DEFINITION  Test reference sequence.
+ACCESSION   reference
+VERSION     reference
+KEYWORDS    .
+SOURCE      Test virus
+  ORGANISM  Test virus
+            Viruses.
+FEATURES             Location/Qualifiers
+     source          1..240
+                     /organism="Test virus"
+                     /mol_type="genomic DNA"
+ORIGIN
+        1 gacaactcaa ccacaaggta agtgcaaatg aacttataac agtataatcg tgctagtgga
+       61 tcccaaaatt ccacgtggtg atatggtcct atagcgtacg cctagtagac ttgggtgaat
+      121 gacacgccga tactaagtgg gaatagtccg tagctccctg tggccagtga ggctgcgtag
+      181 gggcggcttc cggaatagcg tacgcgcctt tgggtccact cgacagcttg aggcataggg
+//`);
+    setRefGbffInputMethod('text');
+
+    // Example sequences to place
+    setFastaText(`>sequence_1
+GAGAACTCAACCACAAGGTAAGTGCAAATGAACTTATAACAGTATAATCGTGCTAGTGGA
+TCCCAAAATTCCACGTGGTGATATGGTCCTATAGCGTACGCCTAGTATACTTGGGTGAAT
+GACACGCCGATACTAAGTGGGAATAGTCCGTAGCTCCCTGTGGCCAGTGAGGCTGCGTAG
+GGGCGGCTTCCGGAATAGCGTCCGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG
+>sequence_2
+GACAACTCAACCACAAGGTAAGTGCAAATGAACTAATAACAGTATAATCGTGCTAGTGGA
+TCCCAAAATTCCACGTGGTGATATGGTCCTATAGCGTACGCCTAGTAGACTTGGGTGAAT
+GACACGCCGATACTAAGTGTGAATAGTCCGTAGCTCCCGGTGGCCAGTGAGGCTGCGTAG
+GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGTTCCACTCGACAGCTTGAGGCATCGGG
+>sequence_3
+GACAACTCAACCACAAGGTAAGTGCAAATGAACTTATAACAGTATAATCGTGCTAGTGGA
+TCCCAAAATTCCACGTGGTGATATGGTCCTATAGCGTACGCCTAGTAGACTTGGGTGAAT
+GACACGCCGATACTAAGTGGGAATAGTCCGTAGCTACCTGTTGCCAGTGATGCTGCGTAC
+GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
+    setFastaInputMethod('text');
+
+    setCurrentStep(2);
+  };
+
   // Generate config
   const generateConfig = async () => {
     // Stop any previous polling and clear old job logs
@@ -159,10 +232,36 @@ function App() {
 
     try {
       const formData = new FormData();
-      formData.append('refseq_acc', selectedRefseq?.accession || '');
-      formData.append('refseq_assembly', assemblyId);
-      formData.append('species', selectedTaxonomy?.sci_name || '');
-      formData.append('taxonomy_id', selectedTaxonomy?.tax_id || '');
+
+      // Mode and basic config
+      formData.append('no_genbank', mode === 'no_genbank' ? 'true' : 'false');
+
+      if (mode === 'genbank') {
+        // GenBank mode: use RefSeq accession
+        formData.append('refseq_acc', selectedRefseq?.accession || '');
+        formData.append('refseq_assembly', assemblyId);
+        formData.append('species', selectedTaxonomy?.sci_name || '');
+        formData.append('taxonomy_id', selectedTaxonomy?.tax_id || '');
+      } else {
+        // No GenBank mode: use uploaded reference files or text
+        formData.append('refseq_acc', '');
+        formData.append('refseq_assembly', '');
+        formData.append('species', manualSpeciesName);
+        formData.append('taxonomy_id', manualTaxonomyId);
+
+        if (refFastaInputMethod === 'file' && refFastaFile) {
+          formData.append('ref_fasta_file', refFastaFile);
+        } else if (refFastaInputMethod === 'text' && refFastaText) {
+          formData.append('ref_fasta_text', refFastaText);
+        }
+
+        if (refGbffInputMethod === 'file' && refGbffFile) {
+          formData.append('ref_gbff_file', refGbffFile);
+        } else if (refGbffInputMethod === 'text' && refGbffText) {
+          formData.append('ref_gbff_text', refGbffText);
+        }
+      }
+
       formData.append('nextclade_dataset', selectedNextclade?.path || '');
       formData.append('nextclade_clade_columns', selectedNextclade?.clade_columns || '');
       formData.append('min_length_proportion', minLengthProportion);
@@ -171,11 +270,19 @@ function App() {
       formData.append('max_branch_length', maxBranchLength);
       formData.append('workdir', workdir);
 
-      // Add FASTA data
+      // Add FASTA data (sequences to place)
       if (fastaInputMethod === 'file' && fastaFile) {
         formData.append('fasta_file', fastaFile);
       } else if (fastaInputMethod === 'text' && fastaText) {
         formData.append('fasta_text', fastaText);
+      }
+
+      // Add metadata file if provided
+      if (metadataFile) {
+        formData.append('metadata_file', metadataFile);
+      }
+      if (metadataDateColumn) {
+        formData.append('metadata_date_column', metadataDateColumn);
       }
 
       const response = await fetch(`${API_BASE}/generate-config`, {
@@ -263,307 +370,580 @@ function App() {
           {/* Tree Building Form (collapsible) */}
           {!formCollapsed && (
             <>
-          {/* Step 1: Species Search */}
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">1. Select Virus Species</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Search for your virus of interest:</label>
-                <input
-                  type="text"
-                  value={speciesSearch}
-                  onChange={(e) => setSpeciesSearch(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && searchSpecies()}
-                  placeholder="e.g., Zika virus"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                />
-                <button
-                  onClick={searchSpecies}
-                  disabled={loading || !speciesSearch.trim()}
-                  className="mt-3 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium"
-                >
-                  {loading ? 'Searching...' : 'Search'}
-                </button>
-              </div>
-
-              {taxonomyResults.length > 0 && !selectedTaxonomy && !loadingRefSeqs && (
-                <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
-                  {taxonomyResults.map((tax) => (
-                    <div
-                      key={tax.tax_id}
-                      onClick={() => selectTaxonomy(tax)}
-                      className="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0 transition"
+              {/* Step 0: Mode Selection */}
+              {!mode && (
+                <div className="mb-8">
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">Choose Mode</h2>
+                  <p className="text-gray-600 mb-4">Select how you want to provide the reference genome:</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <button
+                      onClick={() => {
+                        setMode('genbank');
+                        setCurrentStep(1);
+                      }}
+                      className="p-6 border-2 border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition text-left"
                     >
-                      {tax.sci_name} <span className="text-gray-500">(Tax ID: {tax.tax_id})</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {loadingRefSeqs && (
-                <div className="flex items-center gap-2 text-blue-600">
-                  <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-                  Loading RefSeq entries...
-                </div>
-              )}
-
-              {selectedTaxonomy && !loadingRefSeqs && (
-                <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 flex items-center justify-between">
-                  <div>
-                    <span className="font-medium">Selected:</span> {selectedTaxonomy.sci_name} <span className="text-gray-600">(Tax ID: {selectedTaxonomy.tax_id})</span>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Search GenBank</h3>
+                      <p className="text-sm text-gray-600">Search for a species in NCBI Taxonomy and select a RefSeq reference genome. All GenBank sequences will be downloaded automatically.</p>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setMode('no_genbank');
+                        setCurrentStep(1);
+                      }}
+                      className="p-6 border-2 border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition text-left"
+                    >
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Provide Reference Files</h3>
+                      <p className="text-sm text-gray-600">Upload your own reference FASTA and GenBank files. Only your provided sequences will be placed on the tree (no GenBank download).</p>
+                    </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      setSelectedTaxonomy(null);
-                      setRefseqResults([]);
-                      setSelectedRefseq(null);
-                      setAssemblyId('');
-                      setNextcladeDatasets([]);
-                      setSelectedNextclade(null);
-                      setCurrentStep(1);
-                    }}
-                    className="px-4 py-1 text-sm bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition"
-                  >
-                    Change
-                  </button>
                 </div>
               )}
-            </div>
-          </div>
 
-          {/* Step 2: RefSeq Selection */}
-          {currentStep >= 2 && (
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">2. Select Reference Sequence</h2>
-              {loadingRefSeqs && (
-                <div className="flex items-center gap-2 text-blue-600">
-                  <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-                  Loading RefSeq entries...
-                </div>
-              )}
-              {refseqResults.length > 0 && !selectedRefseq && !loadingRefSeqs && (
-                <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
-                  {refseqResults.map((refseq, idx) => (
-                    <div
-                      key={idx}
-                      className="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0 transition"
-                      onClick={() => selectRefseq(refseq)}
-                    >
-                      <strong className="text-gray-900">{refseq.accession}</strong>: {refseq.title}
-                      {refseq.strain && refseq.strain !== 'No strain' && (
-                        <div className="text-sm text-gray-600 mt-1">
-                          Strain: {refseq.strain}
+              {/* GenBank Mode Workflow */}
+              {mode === 'genbank' && (
+                <>
+                  {/* Step 1: Species Search */}
+                  <div className="mb-8">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-xl font-semibold text-gray-800 pb-2 border-b-2 border-blue-500">1. Select Virus Species</h2>
+                      <button onClick={() => setMode(null)} className="text-sm text-blue-600 hover:text-blue-800">Change Mode</button>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Search for your virus of interest:</label>
+                        <input
+                          type="text"
+                          value={speciesSearch}
+                          onChange={(e) => setSpeciesSearch(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && searchSpecies()}
+                          placeholder="e.g., Zika virus"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                        />
+                        <button
+                          onClick={searchSpecies}
+                          disabled={loading || !speciesSearch.trim()}
+                          className="mt-3 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium"
+                        >
+                          {loading ? 'Searching...' : 'Search'}
+                        </button>
+                      </div>
+
+                      {taxonomyResults.length > 0 && !selectedTaxonomy && !loadingRefSeqs && (
+                        <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+                          {taxonomyResults.map((tax) => (
+                            <div
+                              key={tax.tax_id}
+                              onClick={() => selectTaxonomy(tax)}
+                              className="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0 transition"
+                            >
+                              {tax.sci_name} <span className="text-gray-500">(Tax ID: {tax.tax_id})</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {loadingRefSeqs && (
+                        <div className="flex items-center gap-2 text-blue-600">
+                          <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                          Loading RefSeq entries...
+                        </div>
+                      )}
+
+                      {selectedTaxonomy && !loadingRefSeqs && (
+                        <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 flex items-center justify-between">
+                          <div>
+                            <span className="font-medium">Selected:</span> {selectedTaxonomy.sci_name} <span className="text-gray-600">(Tax ID: {selectedTaxonomy.tax_id})</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setSelectedTaxonomy(null);
+                              setRefseqResults([]);
+                              setSelectedRefseq(null);
+                              setAssemblyId('');
+                              setNextcladeDatasets([]);
+                              setSelectedNextclade(null);
+                              setCurrentStep(1);
+                            }}
+                            className="px-4 py-1 text-sm bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition"
+                          >
+                            Change
+                          </button>
                         </div>
                       )}
                     </div>
-                  ))}
-                </div>
-              )}
-
-              {loadingAssembly && (
-                <div className="flex items-center gap-2 text-blue-600">
-                  <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-                  Loading assembly information...
-                </div>
-              )}
-              {selectedRefseq && !loadingAssembly && (
-                <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 flex items-center justify-between">
-                  <div>
-                    <div className="mb-1">
-                      <strong className="text-gray-900">Selected RefSeq:</strong> {selectedRefseq.accession}
-                    </div>
-                    <div>
-                      <strong className="text-gray-900">Assembly:</strong> {assemblyId}
-                    </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      setSelectedRefseq(null);
-                      setAssemblyId('');
-                      setNextcladeDatasets([]);
-                      setSelectedNextclade(null);
-                      setCurrentStep(2);
-                    }}
-                    className="px-4 py-1 text-sm bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition"
-                  >
-                    Change
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
 
-          {/* Step 3: Tree Building Parameters */}
-          {currentStep >= 3 && (
-            <>
-              <div className="mb-8">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">3. Nextclade Dataset (Optional)</h2>
-                {nextcladeDatasets.length > 0 ? (
-                  <>
-                    <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
-                      {nextcladeDatasets.map((dataset, idx) => (
-                        <div
-                          key={idx}
-                          className={`px-4 py-3 cursor-pointer border-b border-gray-100 last:border-b-0 transition ${
-                            selectedNextclade?.path === dataset.path
-                              ? 'bg-blue-50 border-l-4 border-l-blue-500'
-                              : 'hover:bg-blue-50'
-                          }`}
-                          onClick={() => setSelectedNextclade(dataset)}
-                        >
-                          <strong className="text-gray-900">{dataset.path}</strong>
-                          <br />
-                          <span className="text-sm text-gray-600">{dataset.name}</span>
+                  {/* Step 2: RefSeq Selection */}
+                  {currentStep >= 2 && (
+                    <div className="mb-8">
+                      <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">2. Select Reference Sequence</h2>
+                      {refseqResults.length > 0 && !selectedRefseq && !loadingRefSeqs && (
+                        <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+                          {refseqResults.map((refseq, idx) => (
+                            <div
+                              key={idx}
+                              className="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0 transition"
+                              onClick={() => selectRefseq(refseq)}
+                            >
+                              <strong className="text-gray-900">{refseq.accession}</strong>: {refseq.title}
+                              {refseq.strain && refseq.strain !== 'No strain' && (
+                                <div className="text-sm text-gray-600 mt-1">
+                                  Strain: {refseq.strain}
+                                </div>
+                              )}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                    {selectedNextclade && (
-                      <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mt-4">
-                        <strong className="text-gray-900">Selected:</strong> {selectedNextclade.path}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-sm text-gray-600 italic">No Nextclade datasets found for this species.</p>
-                )}
-              </div>
+                      )}
 
-              <div className="mb-8">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">4. FASTA Sequences (Optional)</h2>
-                <div className="space-y-4">
-                  <div className="flex gap-4 mb-4">
-                    <button
-                      onClick={() => setFastaInputMethod('text')}
-                      className={`px-4 py-2 rounded-lg transition ${
-                        fastaInputMethod === 'text'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
-                    >
-                      Paste Text
-                    </button>
-                    <button
-                      onClick={() => setFastaInputMethod('file')}
-                      className={`px-4 py-2 rounded-lg transition ${
-                        fastaInputMethod === 'file'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
-                    >
-                      Upload File
-                    </button>
-                  </div>
-
-                  {fastaInputMethod === 'text' ? (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Paste FASTA sequences
-                        <div className="text-xs text-gray-500 font-normal mt-1">Paste your FASTA formatted sequences here</div>
-                      </label>
-                      <textarea
-                        value={fastaText}
-                        onChange={(e) => setFastaText(e.target.value)}
-                        rows={8}
-                        placeholder=">sequence1&#10;ATCGATCG..."
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-mono text-sm"
-                      />
-                    </div>
-                  ) : (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Upload FASTA file
-                        <div className="text-xs text-gray-500 font-normal mt-1">Select a FASTA file from your computer</div>
-                      </label>
-                      <input
-                        type="file"
-                        accept=".fasta,.fa,.fna,.txt"
-                        onChange={(e) => setFastaFile(e.target.files?.[0] || null)}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                      />
-                      {fastaFile && (
-                        <div className="mt-2 text-sm text-gray-600">
-                          Selected: {fastaFile.name}
+                      {loadingAssembly && (
+                        <div className="flex items-center gap-2 text-blue-600">
+                          <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                          Loading assembly information...
+                        </div>
+                      )}
+                      {selectedRefseq && !loadingAssembly && (
+                        <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 flex items-center justify-between">
+                          <div>
+                            <div className="mb-1">
+                              <strong className="text-gray-900">Selected RefSeq:</strong> {selectedRefseq.accession}
+                            </div>
+                            <div>
+                              <strong className="text-gray-900">Assembly:</strong> {assemblyId}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setSelectedRefseq(null);
+                              setAssemblyId('');
+                              setNextcladeDatasets([]);
+                              setSelectedNextclade(null);
+                              setCurrentStep(2);
+                            }}
+                            className="px-4 py-1 text-sm bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition"
+                          >
+                            Change
+                          </button>
                         </div>
                       )}
                     </div>
                   )}
+                </>
+              )}
+
+              {/* No GenBank Mode Workflow */}
+              {mode === 'no_genbank' && (
+                <div className="mb-8">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-semibold text-gray-800 pb-2 border-b-2 border-blue-500">1. Provide Reference Files</h2>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={loadExampleData}
+                        className="px-4 py-1 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                      >
+                        Load Example Data
+                      </button>
+                      <button onClick={() => setMode(null)} className="text-sm text-blue-600 hover:text-blue-800">Change Mode</button>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Taxonomy ID *
+                        <div className="text-xs text-gray-500 font-normal mt-1">NCBI Taxonomy ID for your organism</div>
+                      </label>
+                      <input
+                        type="text"
+                        value={manualTaxonomyId}
+                        onChange={(e) => setManualTaxonomyId(e.target.value)}
+                        placeholder="e.g., 64320"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Species Name *
+                        <div className="text-xs text-gray-500 font-normal mt-1">Scientific name of your organism</div>
+                      </label>
+                      <input
+                        type="text"
+                        value={manualSpeciesName}
+                        onChange={(e) => setManualSpeciesName(e.target.value)}
+                        placeholder="e.g., Zika virus"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Reference FASTA *
+                        <div className="text-xs text-gray-500 font-normal mt-1">Reference genome in FASTA format</div>
+                      </label>
+                      <div className="flex gap-4 mb-2">
+                        <button
+                          onClick={() => setRefFastaInputMethod('file')}
+                          className={`px-4 py-2 rounded-lg transition text-sm ${
+                            refFastaInputMethod === 'file'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          }`}
+                        >
+                          Upload File
+                        </button>
+                        <button
+                          onClick={() => setRefFastaInputMethod('text')}
+                          className={`px-4 py-2 rounded-lg transition text-sm ${
+                            refFastaInputMethod === 'text'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          }`}
+                        >
+                          Paste Text
+                        </button>
+                      </div>
+                      {refFastaInputMethod === 'file' ? (
+                        <>
+                          <input
+                            type="file"
+                            accept=".fasta,.fa,.fna"
+                            onChange={(e) => setRefFastaFile(e.target.files?.[0] || null)}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                          />
+                          {refFastaFile && (
+                            <div className="mt-2 text-sm text-gray-600">
+                              Selected: {refFastaFile.name}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <textarea
+                          value={refFastaText}
+                          onChange={(e) => setRefFastaText(e.target.value)}
+                          rows={6}
+                          placeholder=">reference&#10;ATCGATCG..."
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-mono text-sm"
+                        />
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Reference GenBank (gbff) *
+                        <div className="text-xs text-gray-500 font-normal mt-1">Reference genome annotations in GenBank format</div>
+                      </label>
+                      <div className="flex gap-4 mb-2">
+                        <button
+                          onClick={() => setRefGbffInputMethod('file')}
+                          className={`px-4 py-2 rounded-lg transition text-sm ${
+                            refGbffInputMethod === 'file'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          }`}
+                        >
+                          Upload File
+                        </button>
+                        <button
+                          onClick={() => setRefGbffInputMethod('text')}
+                          className={`px-4 py-2 rounded-lg transition text-sm ${
+                            refGbffInputMethod === 'text'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          }`}
+                        >
+                          Paste Text
+                        </button>
+                      </div>
+                      {refGbffInputMethod === 'file' ? (
+                        <>
+                          <input
+                            type="file"
+                            accept=".gbff,.gbk,.gb"
+                            onChange={(e) => setRefGbffFile(e.target.files?.[0] || null)}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                          />
+                          {refGbffFile && (
+                            <div className="mt-2 text-sm text-gray-600">
+                              Selected: {refGbffFile.name}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <textarea
+                          value={refGbffText}
+                          onChange={(e) => setRefGbffText(e.target.value)}
+                          rows={8}
+                          placeholder="LOCUS..."
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-mono text-sm"
+                        />
+                      )}
+                    </div>
+                    {manualTaxonomyId && manualSpeciesName &&
+                     ((refFastaInputMethod === 'file' && refFastaFile) || (refFastaInputMethod === 'text' && refFastaText)) &&
+                     ((refGbffInputMethod === 'file' && refGbffFile) || (refGbffInputMethod === 'text' && refGbffText)) && (
+                      <>
+                        <button
+                          onClick={() => {
+                            searchNextclade(manualSpeciesName);
+                            setCurrentStep(2);
+                          }}
+                          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+                        >
+                          Continue
+                        </button>
+                        <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 mt-4">
+                          <span className="font-medium text-green-800">Ready to proceed!</span> All required files provided.
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div className="mb-8">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">5. Tree Building & Filtering Parameters</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Minimum Length Proportion
-                      <div className="text-xs text-gray-500 font-normal mt-1">Filter sequences by minimum length (0-1)</div>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="1"
-                      value={minLengthProportion}
-                      onChange={(e) => setMinLengthProportion(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                    />
-                  </div>
+              {/* Nextclade Dataset Selection (both modes) */}
+              {currentStep >= 2 && mode && (
+                <div className="mb-8">
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">
+                    {mode === 'genbank' ? '3' : '2'}. Nextclade Dataset (Optional)
+                  </h2>
+                  {nextcladeDatasets.length > 0 ? (
+                    <>
+                      <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+                        {nextcladeDatasets.map((dataset, idx) => (
+                          <div
+                            key={idx}
+                            className={`px-4 py-3 cursor-pointer border-b border-gray-100 last:border-b-0 transition ${
+                              selectedNextclade?.path === dataset.path
+                                ? 'bg-blue-50 border-l-4 border-l-blue-500'
+                                : 'hover:bg-blue-50'
+                            }`}
+                            onClick={() => {
+                              setSelectedNextclade(dataset);
+                              setCurrentStep(3);
+                            }}
+                          >
+                            <strong className="text-gray-900">{dataset.path}</strong>
+                            <br />
+                            <span className="text-sm text-gray-600">{dataset.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {selectedNextclade && (
+                        <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mt-4">
+                          <strong className="text-gray-900">Selected:</strong> {selectedNextclade.path}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-600 italic">No Nextclade datasets found for this species.</p>
+                  )}
+                  {nextcladeDatasets.length === 0 && (
+                    <button
+                      onClick={() => setCurrentStep(3)}
+                      className="mt-4 px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition font-medium"
+                    >
+                      Skip
+                    </button>
+                  )}
+                </div>
+              )}
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Maximum N Proportion
-                      <div className="text-xs text-gray-500 font-normal mt-1">Maximum proportion of ambiguous bases (0-1)</div>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="1"
-                      value={maxNProportion}
-                      onChange={(e) => setMaxNProportion(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                    />
-                  </div>
+              {/* FASTA Sequences to Place (both modes) */}
+              {currentStep >= 3 && mode && (
+                <div className="mb-8">
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">
+                    {mode === 'genbank' ? '4' : '3'}. FASTA Sequences {mode === 'no_genbank' ? '(Required)' : '(Optional)'}
+                  </h2>
+                  <p className="text-sm text-gray-600 mb-4">
+                    {mode === 'no_genbank'
+                      ? 'Provide the sequences you want to place on the tree.'
+                      : 'Optionally provide additional sequences to place on the tree.'}
+                  </p>
+                  <div className="space-y-4">
+                    <div className="flex gap-4 mb-4">
+                      <button
+                        onClick={() => setFastaInputMethod('text')}
+                        className={`px-4 py-2 rounded-lg transition ${
+                          fastaInputMethod === 'text'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        Paste Text
+                      </button>
+                      <button
+                        onClick={() => setFastaInputMethod('file')}
+                        className={`px-4 py-2 rounded-lg transition ${
+                          fastaInputMethod === 'file'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        Upload File
+                      </button>
+                    </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Maximum Parsimony
-                      <div className="text-xs text-gray-500 font-normal mt-1">Maximum private substitutions allowed</div>
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={maxParsimony}
-                      onChange={(e) => setMaxParsimony(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Maximum Branch Length
-                      <div className="text-xs text-gray-500 font-normal mt-1">Maximum substitutions per branch</div>
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={maxBranchLength}
-                      onChange={(e) => setMaxBranchLength(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                    />
+                    {fastaInputMethod === 'text' ? (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Paste FASTA sequences
+                          <div className="text-xs text-gray-500 font-normal mt-1">Paste your FASTA formatted sequences here</div>
+                        </label>
+                        <textarea
+                          value={fastaText}
+                          onChange={(e) => setFastaText(e.target.value)}
+                          rows={8}
+                          placeholder=">sequence1&#10;ATCGATCG..."
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-mono text-sm"
+                        />
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Upload FASTA file
+                          <div className="text-xs text-gray-500 font-normal mt-1">Select a FASTA file from your computer</div>
+                        </label>
+                        <input
+                          type="file"
+                          accept=".fasta,.fa,.fna,.txt"
+                          onChange={(e) => setFastaFile(e.target.files?.[0] || null)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                        />
+                        {fastaFile && (
+                          <div className="mt-2 text-sm text-gray-600">
+                            Selected: {fastaFile.name}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
+              )}
 
-              <button
-                onClick={generateConfig}
-                disabled={loading}
-                className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium text-lg"
-              >
-                {loading ? 'Launching...' : 'Launch Analysis'}
-              </button>
-            </>
-          )}
+              {/* Custom Metadata Upload (both modes) */}
+              {currentStep >= 3 && mode && (
+                <div className="mb-8">
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">
+                    {mode === 'genbank' ? '5' : '4'}. Custom Metadata (Optional)
+                  </h2>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Upload a TSV file with custom metadata for your sequences. First column should be sequence names matching your FASTA.
+                  </p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Metadata TSV File
+                        <div className="text-xs text-gray-500 font-normal mt-1">Tab-separated values file</div>
+                      </label>
+                      <input
+                        type="file"
+                        accept=".tsv,.txt"
+                        onChange={(e) => setMetadataFile(e.target.files?.[0] || null)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                      />
+                      {metadataFile && (
+                        <div className="mt-2 text-sm text-gray-600">
+                          Selected: {metadataFile.name}
+                        </div>
+                      )}
+                    </div>
+                    {metadataFile && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Date Column Name (Optional)
+                          <div className="text-xs text-gray-500 font-normal mt-1">Name of the column containing dates (if any)</div>
+                        </label>
+                        <input
+                          type="text"
+                          value={metadataDateColumn}
+                          onChange={(e) => setMetadataDateColumn(e.target.value)}
+                          placeholder="e.g., collection_date"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Tree Building Parameters (both modes) */}
+              {currentStep >= 3 && mode && (
+                <div className="mb-8">
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">
+                    {mode === 'genbank' ? '6' : '5'}. Tree Building & Filtering Parameters
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Minimum Length Proportion
+                        <div className="text-xs text-gray-500 font-normal mt-1">Filter sequences by minimum length (0-1)</div>
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="1"
+                        value={minLengthProportion}
+                        onChange={(e) => setMinLengthProportion(e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Maximum N Proportion
+                        <div className="text-xs text-gray-500 font-normal mt-1">Maximum proportion of ambiguous bases (0-1)</div>
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="1"
+                        value={maxNProportion}
+                        onChange={(e) => setMaxNProportion(e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Maximum Parsimony
+                        <div className="text-xs text-gray-500 font-normal mt-1">Maximum private substitutions allowed</div>
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={maxParsimony}
+                        onChange={(e) => setMaxParsimony(e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Maximum Branch Length
+                        <div className="text-xs text-gray-500 font-normal mt-1">Maximum substitutions per branch</div>
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={maxBranchLength}
+                        onChange={(e) => setMaxBranchLength(e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Launch Button */}
+              {currentStep >= 3 && mode && (
+                <button
+                  onClick={generateConfig}
+                  disabled={loading || (mode === 'no_genbank' && (!fastaFile && !fastaText))}
+                  className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium text-lg"
+                >
+                  {loading ? 'Launching...' : 'Launch Analysis'}
+                </button>
+              )}
             </>
           )}
 
@@ -572,7 +952,6 @@ function App() {
               {error}
             </div>
           )}
-
 
           {jobLogs && (
             <div className="mt-6 bg-gray-50 border-2 border-gray-300 rounded-lg p-6">
@@ -595,18 +974,9 @@ function App() {
 
                 {jobLogs.logs && typeof jobLogs.logs === 'object' && (
                   <>
-                    {jobLogs.logs.init && (
-                      <div>
-                        <h4 className="font-semibold text-gray-700 mb-2">Init Container (Download Config):</h4>
-                        <pre className="bg-black text-green-400 p-4 rounded-lg overflow-x-auto text-xs font-mono">
-{jobLogs.logs.init}
-                        </pre>
-                      </div>
-                    )}
-
                     {jobLogs.logs.main && (
                       <div>
-                        <h4 className="font-semibold text-gray-700 mb-2">Main Container (Viral Usher):</h4>
+                        <h4 className="font-semibold text-gray-700 mb-2">Viral Usher Logs:</h4>
                         <pre className="bg-black text-green-400 p-4 rounded-lg overflow-x-auto text-xs font-mono max-h-96">
 {jobLogs.logs.main}
                         </pre>
