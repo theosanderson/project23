@@ -249,7 +249,7 @@ def ensure_upload_script_configmap():
         print(f"Warning: Failed to create/update upload script ConfigMap: {e}", file=sys.stderr)
 
 
-def start_kubernetes_job(config_s3_key: str, job_name: str, no_genbank: bool = False) -> dict:
+def start_kubernetes_job(config_s3_key: str, job_name: str, no_genbank: bool = False, use_update_mode: bool = False) -> dict:
     """Start a Kubernetes job to process the config file"""
     try:
         # Ensure the upload script ConfigMap exists
@@ -313,9 +313,11 @@ def start_kubernetes_job(config_s3_key: str, job_name: str, no_genbank: bool = F
                                 image_pull_policy=K8S_JOB_IMAGE_PULL_POLICY,
                                 command=["/bin/sh", "-c"],
                                 args=[
-                                    # Run viral_usher_build with config URL and optionally --no_genbank flag
+                                    # Run viral_usher_build with config URL and optional flags
                                     "cd /workspace && "
-                                    f"viral_usher_build --config {config_url}{' --no_genbank' if no_genbank else ''} && "
+                                    f"viral_usher_build --config {config_url}"
+                                    f"{' --no_genbank' if no_genbank else ''}"
+                                    f"{' --update' if use_update_mode else ''} && "
                                     "touch /workspace/.job_complete"
                                 ],
                                 env=env_vars,
@@ -615,7 +617,9 @@ async def generate_config(
     ref_fasta_text: str = Form(""),
     ref_gbff_text: str = Form(""),
     metadata_file: Optional[UploadFile] = File(None),
-    metadata_date_column: str = Form("")
+    metadata_date_column: str = Form(""),
+    starting_tree_file: Optional[UploadFile] = File(None),
+    starting_tree_url: str = Form("")
 ):
     """Generate and save a viral_usher config file, optionally with FASTA upload to S3"""
     try:
@@ -658,6 +662,15 @@ async def generate_config(
         if metadata_file:
             metadata_content = await metadata_file.read()
             metadata_s3_key = upload_to_s3(metadata_content, metadata_file.filename or "metadata.tsv", "text/tab-separated-values")
+
+        # Handle starting tree upload (protobuf for update mode)
+        starting_tree_s3_key = None
+        starting_tree_source_url = None
+        if starting_tree_file:
+            starting_tree_content = await starting_tree_file.read()
+            starting_tree_s3_key = upload_to_s3(starting_tree_content, starting_tree_file.filename or "optimized.pb.gz", "application/gzip")
+        elif starting_tree_url:
+            starting_tree_source_url = starting_tree_url
 
         # Build config contents based on mode
         config_contents = {
@@ -713,6 +726,16 @@ async def generate_config(
             if metadata_date_column:
                 config_contents["extra_metadata_date_column"] = metadata_date_column
 
+        # Add starting tree if provided (for update mode)
+        # Note: viral_usher expects 'update_tree_input' key, which can be a URL or local path
+        if starting_tree_s3_key:
+            if S3_ENDPOINT_URL:
+                config_contents["update_tree_input"] = f"{S3_ENDPOINT_URL}/{S3_BUCKET}/{starting_tree_s3_key}"
+            else:
+                config_contents["update_tree_input"] = f"https://s3.{S3_REGION}.amazonaws.com/{S3_BUCKET}/{starting_tree_s3_key}"
+        elif starting_tree_source_url:
+            config_contents["update_tree_input"] = starting_tree_source_url
+
         # Create workdir if it doesn't exist
         os.makedirs(workdir, exist_ok=True)
 
@@ -733,8 +756,10 @@ async def generate_config(
 
             # Start Kubernetes job to process the config
             job_name = f"viral-usher-{taxonomy_id}-{uuid.uuid4().hex[:8]}"
+            # Use update mode if a starting tree was provided
+            use_update_mode = bool(starting_tree_s3_key or starting_tree_source_url)
             try:
-                job_info = start_kubernetes_job(config_s3_key, job_name, no_genbank_mode)
+                job_info = start_kubernetes_job(config_s3_key, job_name, no_genbank_mode, use_update_mode)
             except HTTPException as e:
                 # Job creation failed, but config was still created
                 job_info = {"success": False, "error": str(e.detail)}

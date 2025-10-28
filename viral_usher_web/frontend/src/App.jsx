@@ -1,11 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 function App() {
   // Mode selection: 'genbank' or 'no_genbank'
   const [mode, setMode] = useState(null);
-
-  // Step tracking
-  const [currentStep, setCurrentStep] = useState(1);
 
   // Search and selection state (GenBank mode)
   const [speciesSearch, setSpeciesSearch] = useState('');
@@ -38,6 +35,11 @@ function App() {
   const [metadataFile, setMetadataFile] = useState(null);
   const [metadataDateColumn, setMetadataDateColumn] = useState('');
 
+  // Starting tree (protobuf) upload state
+  const [startingTreeFile, setStartingTreeFile] = useState(null);
+  const [startingTreeUrl, setStartingTreeUrl] = useState('');
+  const [startingTreeInputMethod, setStartingTreeInputMethod] = useState('file'); // 'file' or 'url'
+
   // Configuration parameters
   const [minLengthProportion, setMinLengthProportion] = useState('0.8');
   const [maxNProportion, setMaxNProportion] = useState('0.25');
@@ -68,7 +70,6 @@ function App() {
     setAssemblyId('');
     setNextcladeDatasets([]);
     setSelectedNextclade(null);
-    setCurrentStep(1);
     setTaxonomyResults([]);
 
     setLoading(true);
@@ -110,8 +111,6 @@ function App() {
 
       if (data.length === 0) {
         setError('No RefSeqs found for this taxonomy ID.');
-      } else {
-        setCurrentStep(2);
       }
     } catch (err) {
       setError(err.message);
@@ -135,8 +134,6 @@ function App() {
 
       // Also search for Nextclade datasets
       await searchNextclade();
-
-      setCurrentStep(3);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -218,7 +215,8 @@ GACACGCCGATACTAAGTGGGAATAGTCCGTAGCTACCTGTTGCCAGTGATGCTGCGTAC
 GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
     setFastaInputMethod('text');
 
-    setCurrentStep(2);
+    // Auto-search for Nextclade datasets when example data is loaded
+    searchNextclade('Test virus');
   };
 
   // Generate config
@@ -285,6 +283,13 @@ GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
         formData.append('metadata_date_column', metadataDateColumn);
       }
 
+      // Add starting tree (protobuf) if provided
+      if (startingTreeInputMethod === 'file' && startingTreeFile) {
+        formData.append('starting_tree_file', startingTreeFile);
+      } else if (startingTreeInputMethod === 'url' && startingTreeUrl) {
+        formData.append('starting_tree_url', startingTreeUrl);
+      }
+
       const response = await fetch(`${API_BASE}/generate-config`, {
         method: 'POST',
         body: formData
@@ -345,6 +350,111 @@ GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
     }
   };
 
+  // Auto-search for Nextclade datasets when required fields are filled (no_genbank mode)
+  useEffect(() => {
+    if (mode === 'no_genbank' && manualSpeciesName && nextcladeDatasets.length === 0) {
+      searchNextclade(manualSpeciesName);
+    }
+  }, [mode, manualSpeciesName]);
+
+  // Parse URL query parameters on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    // Mode
+    const modeParam = params.get('mode');
+    if (modeParam === 'genbank' || modeParam === 'no_genbank') {
+      setMode(modeParam);
+    }
+
+    // Starting tree URL (protobuf)
+    const startingTreeUrl = params.get('startingTreeUrl');
+    if (startingTreeUrl) {
+      setStartingTreeUrl(startingTreeUrl);
+      setStartingTreeInputMethod('url');
+    }
+
+    // No GenBank mode parameters
+    const taxonomyId = params.get('taxonomyId');
+    if (taxonomyId) {
+      setManualTaxonomyId(taxonomyId);
+    }
+
+    const speciesName = params.get('speciesName');
+    if (speciesName) {
+      setManualSpeciesName(speciesName);
+    }
+
+    const refFastaUrl = params.get('refFastaUrl');
+    if (refFastaUrl) {
+      // Fetch the FASTA content and populate the text field
+      fetch(refFastaUrl)
+        .then(res => res.text())
+        .then(text => {
+          setRefFastaText(text);
+          setRefFastaInputMethod('text');
+        })
+        .catch(err => console.error('Failed to fetch reference FASTA:', err));
+    }
+
+    const refGbffUrl = params.get('refGbffUrl');
+    if (refGbffUrl) {
+      // Fetch the GenBank content and populate the text field
+      fetch(refGbffUrl)
+        .then(res => res.text())
+        .then(text => {
+          setRefGbffText(text);
+          setRefGbffInputMethod('text');
+        })
+        .catch(err => console.error('Failed to fetch reference GenBank:', err));
+    }
+
+    // GenBank mode parameters
+    const refseqAcc = params.get('refseqAcc');
+    if (refseqAcc) {
+      // Note: This would require additional logic to auto-select the refseq
+      // For now, just store it - full implementation would need to trigger searches
+      console.log('RefSeq accession from URL:', refseqAcc);
+    }
+
+    // FASTA sequences URL
+    const fastaUrl = params.get('fastaUrl');
+    if (fastaUrl) {
+      fetch(fastaUrl)
+        .then(res => res.text())
+        .then(text => {
+          setFastaText(text);
+          setFastaInputMethod('text');
+        })
+        .catch(err => console.error('Failed to fetch FASTA sequences:', err));
+    }
+
+    // Configuration parameters
+    const minLength = params.get('minLengthProportion');
+    if (minLength) setMinLengthProportion(minLength);
+
+    const maxN = params.get('maxNProportion');
+    if (maxN) setMaxNProportion(maxN);
+
+    const maxPars = params.get('maxParsimony');
+    if (maxPars) setMaxParsimony(maxPars);
+
+    const maxBranch = params.get('maxBranchLength');
+    if (maxBranch) setMaxBranchLength(maxBranch);
+
+    // Nextclade dataset path
+    const nextcladeDataset = params.get('nextcladeDataset');
+    if (nextcladeDataset) {
+      // Store for later matching when datasets are loaded
+      // This will be used to auto-select the dataset
+      console.log('Nextclade dataset from URL:', nextcladeDataset);
+    }
+
+    // Metadata date column
+    const dateColumn = params.get('metadataDateColumn');
+    if (dateColumn) setMetadataDateColumn(dateColumn);
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
       <div className="max-w-4xl mx-auto">
@@ -377,20 +487,14 @@ GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
                   <p className="text-gray-600 mb-4">Select how you want to provide the reference genome:</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <button
-                      onClick={() => {
-                        setMode('genbank');
-                        setCurrentStep(1);
-                      }}
+                      onClick={() => setMode('genbank')}
                       className="p-6 border-2 border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition text-left"
                     >
                       <h3 className="text-lg font-semibold text-gray-900 mb-2">Search GenBank</h3>
                       <p className="text-sm text-gray-600">Search for a species in NCBI Taxonomy and select a RefSeq reference genome. All GenBank sequences will be downloaded automatically.</p>
                     </button>
                     <button
-                      onClick={() => {
-                        setMode('no_genbank');
-                        setCurrentStep(1);
-                      }}
+                      onClick={() => setMode('no_genbank')}
                       className="p-6 border-2 border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition text-left"
                     >
                       <h3 className="text-lg font-semibold text-gray-900 mb-2">Provide Reference Files</h3>
@@ -463,7 +567,6 @@ GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
                               setAssemblyId('');
                               setNextcladeDatasets([]);
                               setSelectedNextclade(null);
-                              setCurrentStep(1);
                             }}
                             className="px-4 py-1 text-sm bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition"
                           >
@@ -475,7 +578,7 @@ GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
                   </div>
 
                   {/* Step 2: RefSeq Selection */}
-                  {currentStep >= 2 && (
+                  {selectedTaxonomy && (
                     <div className="mb-8">
                       <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">2. Select Reference Sequence</h2>
                       {refseqResults.length > 0 && !selectedRefseq && !loadingRefSeqs && (
@@ -519,7 +622,6 @@ GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
                               setAssemblyId('');
                               setNextcladeDatasets([]);
                               setSelectedNextclade(null);
-                              setCurrentStep(2);
                             }}
                             className="px-4 py-1 text-sm bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition"
                           >
@@ -679,27 +781,16 @@ GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
                     {manualTaxonomyId && manualSpeciesName &&
                      ((refFastaInputMethod === 'file' && refFastaFile) || (refFastaInputMethod === 'text' && refFastaText)) &&
                      ((refGbffInputMethod === 'file' && refGbffFile) || (refGbffInputMethod === 'text' && refGbffText)) && (
-                      <>
-                        <button
-                          onClick={() => {
-                            searchNextclade(manualSpeciesName);
-                            setCurrentStep(2);
-                          }}
-                          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
-                        >
-                          Continue
-                        </button>
-                        <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 mt-4">
-                          <span className="font-medium text-green-800">Ready to proceed!</span> All required files provided.
-                        </div>
-                      </>
+                      <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 mt-4">
+                        <span className="font-medium text-green-800">Ready to proceed!</span> All required files provided. Scroll down to configure additional options and launch the analysis.
+                      </div>
                     )}
                   </div>
                 </div>
               )}
 
               {/* Nextclade Dataset Selection (both modes) */}
-              {currentStep >= 2 && mode && (
+              {mode && (
                 <div className="mb-8">
                   <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">
                     {mode === 'genbank' ? '3' : '2'}. Nextclade Dataset (Optional)
@@ -715,10 +806,7 @@ GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
                                 ? 'bg-blue-50 border-l-4 border-l-blue-500'
                                 : 'hover:bg-blue-50'
                             }`}
-                            onClick={() => {
-                              setSelectedNextclade(dataset);
-                              setCurrentStep(3);
-                            }}
+                            onClick={() => setSelectedNextclade(dataset)}
                           >
                             <strong className="text-gray-900">{dataset.path}</strong>
                             <br />
@@ -735,19 +823,81 @@ GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
                   ) : (
                     <p className="text-sm text-gray-600 italic">No Nextclade datasets found for this species.</p>
                   )}
-                  {nextcladeDatasets.length === 0 && (
-                    <button
-                      onClick={() => setCurrentStep(3)}
-                      className="mt-4 px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition font-medium"
-                    >
-                      Skip
-                    </button>
-                  )}
+                </div>
+              )}
+
+              {/* Starting Tree Upload (both modes, optional) */}
+              {mode && (
+                <div className="mb-8">
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-purple-500">
+                    Starting Tree - Update Mode (Optional)
+                  </h2>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Provide an existing UShER protobuf tree (.pb.gz) to update with new sequences instead of building from scratch.
+                  </p>
+                  <div className="space-y-4">
+                    <div className="flex gap-4 mb-4">
+                      <button
+                        onClick={() => setStartingTreeInputMethod('file')}
+                        className={`px-4 py-2 rounded-lg transition ${
+                          startingTreeInputMethod === 'file'
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        Upload File
+                      </button>
+                      <button
+                        onClick={() => setStartingTreeInputMethod('url')}
+                        className={`px-4 py-2 rounded-lg transition ${
+                          startingTreeInputMethod === 'url'
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        Provide URL
+                      </button>
+                    </div>
+
+                    {startingTreeInputMethod === 'file' ? (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Upload Protobuf File
+                          <div className="text-xs text-gray-500 font-normal mt-1">UShER protobuf tree file (optimized.pb.gz or similar)</div>
+                        </label>
+                        <input
+                          type="file"
+                          accept=".pb.gz,.pb"
+                          onChange={(e) => setStartingTreeFile(e.target.files?.[0] || null)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition"
+                        />
+                        {startingTreeFile && (
+                          <div className="mt-2 text-sm text-gray-600">
+                            Selected: {startingTreeFile.name}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Protobuf URL
+                          <div className="text-xs text-gray-500 font-normal mt-1">URL to an existing UShER protobuf tree file</div>
+                        </label>
+                        <input
+                          type="url"
+                          value={startingTreeUrl}
+                          onChange={(e) => setStartingTreeUrl(e.target.value)}
+                          placeholder="https://example.com/tree.pb.gz"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none transition"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
               {/* FASTA Sequences to Place (both modes) */}
-              {currentStep >= 3 && mode && (
+              {mode && (
                 <div className="mb-8">
                   <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">
                     {mode === 'genbank' ? '4' : '3'}. FASTA Sequences {mode === 'no_genbank' ? '(Required)' : '(Optional)'}
@@ -819,7 +969,7 @@ GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
               )}
 
               {/* Custom Metadata Upload (both modes) */}
-              {currentStep >= 3 && mode && (
+              {mode && (
                 <div className="mb-8">
                   <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">
                     {mode === 'genbank' ? '5' : '4'}. Custom Metadata (Optional)
@@ -865,7 +1015,7 @@ GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
               )}
 
               {/* Tree Building Parameters (both modes) */}
-              {currentStep >= 3 && mode && (
+              {mode && (
                 <div className="mb-8">
                   <h2 className="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-500">
                     {mode === 'genbank' ? '6' : '5'}. Tree Building & Filtering Parameters
@@ -935,7 +1085,7 @@ GGGCGGCTTCCGGAATAGCGTACGCGCCTTTGGGTCCACTCGACAGCTTGAGGCATAGGG`);
               )}
 
               {/* Launch Button */}
-              {currentStep >= 3 && mode && (
+              {mode && (
                 <button
                   onClick={generateConfig}
                   disabled={loading || (mode === 'no_genbank' && (!fastaFile && !fastaText))}
